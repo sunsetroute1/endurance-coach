@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# Tooling
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker
+docker-data/
+
+# Runtime
+logs/
+installer/local.json
+
+# Optional local venvs
+services/music-ingest/.venv/
+services/music-ingest/config/pipeline.env
+
+# OS
+.DS_Store
+Thumbs.db
