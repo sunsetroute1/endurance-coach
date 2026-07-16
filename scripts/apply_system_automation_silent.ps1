@@ -1,0 +1,57 @@
+# Re-apply hidden/minimized settings for all known automation on this machine.
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+Write-Host "Re-registering endurance-coach scheduled tasks (hidden)..."
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "install_all_services.ps1")
+
+$adminScripts = @(
+    (Join-Path $ProjectRoot "installer\caddy\Install-CaddyService.ps1"),
+    (Join-Path $ProjectRoot "installer\caddy\Install-DuckDNSTask.ps1")
+)
+
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+
+if ($isAdmin) {
+    foreach ($script in $adminScripts) {
+        if (-not (Test-Path $script)) {
+            Write-Warning "Skipping missing script: $script"
+            continue
+        }
+        Write-Host "Running $script..."
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -InstallRoot $ProjectRoot
+    }
+} else {
+    Write-Host ""
+    Write-Host "Skipped Caddy/DuckDNS task updates (admin required)."
+    Write-Host "Run elevated:"
+    foreach ($script in $adminScripts) {
+        Write-Host "  powershell -ExecutionPolicy Bypass -File `"$script`" -InstallRoot `"$ProjectRoot`""
+    }
+}
+
+Write-Host ""
+Write-Host "Hidden task verification:"
+$taskNames = @(
+    "EnduranceCoachAPI",
+    "EnduranceCoachMCP",
+    "EnduranceCoachGarminSync",
+    "EnduranceCoachWatchdog",
+    "Slskd",
+    "Caddy Server",
+    "DuckDNS Updater"
+)
+foreach ($name in $taskNames) {
+    $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    if (-not $task) {
+        Write-Host ("  {0,-28} missing" -f $name)
+        continue
+    }
+    $args = $task.Actions.Arguments
+    $hidden = $task.Settings.Hidden
+    $silent = ($args -match 'WindowStyle Hidden') -or ($task.Actions.Execute -eq 'wscript.exe')
+    Write-Host ("  {0,-28} Hidden={1} SilentLauncher={2}" -f $name, $hidden, $silent)
+}

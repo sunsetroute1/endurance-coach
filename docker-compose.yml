@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: endurance
+      POSTGRES_PASSWORD: endurance
+      POSTGRES_DB: endurance_coach
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U endurance -d endurance_coach"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    command: uvicorn endurance_coach.api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:8000}
+    volumes:
+      - ./src:/app/src
+      - ${USERPROFILE}/.garminconnect:/root/.garminconnect:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mcp:
+    build: .
+    command: endurance-coach-mcp
+    env_file: .env
+    volumes:
+      - ${USERPROFILE}/.garminconnect:/root/.garminconnect:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:

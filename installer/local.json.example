@@ -1,0 +1,8 @@
+{
+  "caddy_root": "C:\\Caddy",
+  "caddyfile_path": "C:\\Caddy\\Caddyfile",
+  "duckdns_token": "",
+  "duckdns_domain": "",
+  "lan_bind_ip": "",
+  "wan_adapter_name": "Ethernet"
+}

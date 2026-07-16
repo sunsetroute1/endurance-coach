@@ -1,0 +1,71 @@
+# Beets configuration for native Windows music ingestion.
+# Installed to %APPDATA%\beets\config.yaml by install_music_ingest.ps1
+
+directory: E:\Music\Library
+library: E:\Music\State\beets-library.blb
+
+import:
+  move: yes
+  copy: no
+  write: yes
+  autotag: yes
+  timid: no
+  quiet: yes
+  incremental: yes
+  duplicate_action: merge
+  log: E:\Music\State\beets-import.log
+
+paths:
+  default: $albumartist/$album%aunique{}/$track $title
+  singleton: Non-Album/$artist - $title
+  comp: Compilations/$album%aunique{}/$track $title
+  albumtype_soundtrack: Soundtracks/$album/$track $title
+
+plugins: fetchart embedart scrub duplicates badfiles
+
+scrub:
+  auto: yes
+
+fetchart:
+  auto: yes
+  cautious: yes
+  coverart: yes
+  coverart_priority: Cover Art Archive
+  minwidth: 0
+
+embedart:
+  auto: yes
+  ifempty: yes
+  remove_art_file: no
+
+duplicates:
+  album: yes
+  item: yes
+  format: yes
+  checksum: yes
+  copy: no
+  delete: no
+  move: no
+  count: no
+  full: yes
+  path: no
+
+badfiles:
+  check_on_import: yes
+  keep_bad_files: yes
+
+# Optional replaygain (requires mp3gain on PATH). See docs/MUSIC_INGEST_PIPELINE.md.
+# replaygain:
+#   auto: yes
+#   backend: command
+#   command: mp3gain
+#   r128: mp3 mp4 opus flac
+
+match:
+  strong_rec_thresh: 0.04
+  medium_rec_thresh: 0.25
+  rec_gap_thresh: 0.25
+  max_rec_thresh: 0.50
+
+ui:
+  color: no

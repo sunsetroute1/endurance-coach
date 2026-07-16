@@ -1,0 +1,49 @@
+{
+	storage file_system {
+		root {{CADDY_DATA_DIR}}
+	}
+}
+
+{{PUBLIC_HOST}} {
+	bind {{LAN_BIND_IP}}
+	tls {
+		dns duckdns {{DUCKDNS_TOKEN}}
+		resolvers 1.1.1.1
+	}
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	handle /health {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle /api/v1/* {
+		request_body {
+			max_size 4MB
+		}
+		reverse_proxy 127.0.0.1:8000 {
+			transport http {
+				read_timeout 2m
+				write_timeout 2m
+			}
+		}
+	}
+	handle /mcp* {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy 127.0.0.1:8080 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 5m
+				write_timeout 5m
+			}
+		}
+	}
+}

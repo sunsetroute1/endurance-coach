@@ -1,0 +1,49 @@
+# Register endurance-coach API to start automatically after reboot.
+# Run once from an elevated PowerShell if "AtStartup" registration fails.
+$ErrorActionPreference = "Stop"
+
+. (Join-Path $PSScriptRoot "scheduled_task_helpers.ps1")
+
+$TaskName = "EnduranceCoachAPI"
+$StartScript = Join-Path $PSScriptRoot "start_api_windows.ps1"
+
+if (-not (Test-Path $StartScript)) {
+    throw "Missing startup script: $StartScript"
+}
+
+$action = New-SilentPowerShellTaskAction -ScriptPath $StartScript
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$trigger.Delay = "PT30S"
+$settings = New-SilentScheduledTaskSettings -RestartCount 3
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+
+$existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($existing) {
+    Set-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+    Write-Host "Updated hidden scheduled task '$TaskName' (AtStartup, 30s delay)."
+} else {
+    try {
+        Register-ScheduledTask `
+            -TaskName $TaskName `
+            -Action $action `
+            -Trigger $trigger `
+            -Settings $settings `
+            -Principal $principal `
+            -Description "Start endurance-coach API after Windows boot (hidden)" | Out-Null
+        Write-Host "Registered hidden scheduled task '$TaskName' (AtStartup, 30s delay)."
+    } catch {
+        Write-Warning "AtStartup registration failed; falling back to AtLogOn for current user."
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        Register-ScheduledTask `
+            -TaskName $TaskName `
+            -Action $action `
+            -Trigger $trigger `
+            -Settings $settings `
+            -Principal $principal `
+            -Description "Start endurance-coach API at user logon (hidden)" | Out-Null
+        Write-Host "Registered hidden scheduled task '$TaskName' (AtLogOn)."
+    }
+}
+
+Write-Host "PostgreSQL service should already be Automatic (postgresql-x64-16)."
+Write-Host "To test now: powershell -WindowStyle Hidden -File `"$StartScript`""
