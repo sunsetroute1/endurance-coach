@@ -1,0 +1,28 @@
+{
+  "active": true,
+  "latest_version": "4.86.0",
+  "pinned_version": null,
+  "installed_version": null,
+  "summary": "Docker Desktop 4.86.0 (2026-08-10) is current on docs.docker.com. scripts/update_docker_desktop.ps1 is not in this repo, so the pin could not be compared. 4.86.0 and nearby notes are relevant to this Windows always-on stack (unless-stopped/stop timeouts, WSL, VirtioFS, proxy, bind-mount watchers, CVE-2026-17106).",
+  "relevant_notes": [
+    "4.86.0: Fixed container stop timeouts and unless-stopped restart policies not being honored during engine shutdown — always-on *arr Compose and endurance-coach postgres/api/mcp.",
+    "4.86.0: AF_UNIX sockets shared over VirtioFS now work host↔guest.",
+    "4.86.0: Enabling Docker Offload failed when the proxy was set by the OS instead of environment variables.",
+    "4.86.0 ships Docker Engine v29.7.2 and addresses CVE-2026-17106 (CopyEscape): docker cp copy-out destination escape from a malicious container onto the host.",
+    "4.86.0 Windows: installer could report success without writing settings/enterprise policy files; bundled 7-Zip updated to 26.02 to avoid antivirus quarantine during upgrade.",
+    "4.85.0: Linux VM kernel panic when a container inotify/fanotify watcher saw host-side bind-mount changes — endurance-coach api uses uvicorn --reload with ./src bind-mounted.",
+    "4.83.0 Windows: WSL 2.6.x+ 0-byte proxy binary (Permission denied / Exec format error); Resource Saver stopped the VM and broke Docker CLI in integrated WSL distros.",
+    "4.82.0/4.81.0: containers forced to a 1s stop timeout; Windows Hyper-V could force-off the VM without a graceful guest shutdown; WSL Resource Saver / eBPF probe start failures."
+  ],
+  "recommended_actions": [
+    "Leave compose files, recovery scripts, and the Docker Desktop pin unchanged until you review this in Cursor after Watchboard turns yellow.",
+    "On the Windows host, check Docker Desktop → About and compare the installed version to 4.86.0.",
+    "If scripts/update_docker_desktop.ps1 exists only on the machine, compare its Version default to 4.86.0; it is not present in this git checkout.",
+    "If installed/pinned is older than 4.86.0, schedule a maintenance window: quit Docker Desktop, install 4.86.0 from the official notes, then confirm *arr and endurance-coach containers return with restart policies intact.",
+    "After upgrade, verify WSL integration, VirtioFS/file shares, and any system proxy; watch for antivirus quarantining 7-Zip during the Windows installer.",
+    "CVE-2026-17106 is a reason to upgrade if docker cp is used against untrusted containers; no stack config change is required for the fix."
+  ],
+  "release_notes_url": "https://docs.docker.com/desktop/release-notes/",
+  "updated_at": "2026-08-13T04:06:36Z",
+  "source": "cursor-automation"
+}
