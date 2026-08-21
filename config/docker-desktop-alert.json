@@ -1,0 +1,30 @@
+{
+  "active": true,
+  "latest_version": "4.87.0",
+  "pinned_version": null,
+  "installed_version": null,
+  "summary": "Re-check 2026-08-21: Docker Desktop 4.87.0 (2026-08-17) is still the newest on docs.docker.com. scripts/update_docker_desktop.ps1 is not in this repo, so the pin could not be compared and was not bumped. 4.87.0 and nearby notes remain relevant to this Windows always-on stack (Compose 5.4.0, WSL, proxy, unless-stopped/stop timeouts, VirtioFS, bind-mount watchers, CVE-2026-17106).",
+  "relevant_notes": [
+    "4.87.0 ships Docker Compose v5.4.0 (volume/network reconcile in the plan) — relevant to media/*arr Compose and endurance-coach postgres/api/mcp.",
+    "4.87.0: Fixed a misleading proxy error that named the destination server instead of the unreachable upstream proxy, and included machine-wide proxy configuration in diagnostics.",
+    "4.87.0 Windows: WSL error recovery now surfaces specific messages (e.g. HCS/0x80070569) instead of a generic fallback.",
+    "4.87.0 Windows: Docker Desktop no longer repeatedly asks to run wsl --update when WSL is installed via the Microsoft Store rather than the inbox optional component.",
+    "4.87.0 Windows: Resource Saver settings were incorrectly shown when using Windows containers; disk-image/VMM limit slider and Hyper-V virtual-disk cap fixes also shipped.",
+    "4.86.0: Fixed container stop timeouts and unless-stopped restart policies not being honored during engine shutdown — always-on *arr Compose and endurance-coach postgres/api/mcp.",
+    "4.86.0: AF_UNIX sockets shared over VirtioFS now work host↔guest; enabling Docker Offload failed when the proxy was set by the OS instead of environment variables.",
+    "4.86.0 ships Docker Engine v29.7.2 and addresses CVE-2026-17106 (CopyEscape): docker cp copy-out destination escape from a malicious container onto the host.",
+    "4.85.0: Linux VM kernel panic when a container inotify/fanotify watcher saw host-side bind-mount changes — endurance-coach api uses uvicorn --reload with ./src bind-mounted.",
+    "4.83.0 Windows: WSL 2.6.x+ 0-byte proxy binary (Permission denied / Exec format error); Resource Saver stopped the VM and broke Docker CLI in integrated WSL distros."
+  ],
+  "recommended_actions": [
+    "Leave compose files, recovery scripts, and the Docker Desktop pin unchanged until you review this in Cursor after Watchboard turns yellow.",
+    "On the Windows host, check Docker Desktop → About and compare the installed version to 4.87.0.",
+    "If scripts/update_docker_desktop.ps1 exists only on the machine, compare its Version default to 4.87.0; it is not present in this git checkout and must not be bumped by this automation.",
+    "If installed/pinned is older than 4.87.0, schedule a maintenance window: quit Docker Desktop, install 4.87.0 from the official notes, then confirm *arr and endurance-coach containers return with restart policies intact.",
+    "After upgrade, verify WSL integration (Store vs inbox WSL, no spurious wsl --update loop), VirtioFS/file shares, system proxy diagnostics, and Compose v5.4.0 volume/network reconcile on *arr stacks.",
+    "CVE-2026-17106 remains a reason to be on at least 4.86.0 if docker cp is used against untrusted containers; no stack config change is required for the fix."
+  ],
+  "release_notes_url": "https://docs.docker.com/desktop/release-notes/",
+  "updated_at": "2026-08-21T04:05:58Z",
+  "source": "cursor-automation"
+}
