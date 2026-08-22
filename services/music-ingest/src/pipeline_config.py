@@ -58,7 +58,15 @@ class PipelineConfig:
             stability_seconds=_env_int("STABILITY_SECONDS", 120),
             poll_interval_seconds=_env_int("POLL_INTERVAL_SECONDS", 30),
             min_audio_files=_env_int("MIN_AUDIO_FILES", 1),
-            log_dir=Path(_expand(os.environ.get("LOG_DIR", r"C:\Users\adminnie\Projects\endurance-coach\logs"))),
+            log_dir=Path(
+                _expand(
+                    os.environ.get(
+                        "LOG_DIR",
+                        # Default: repo-root/logs relative to this package (…/services/music-ingest/src)
+                        str(Path(__file__).resolve().parents[3] / "logs"),
+                    )
+                )
+            ),
             log_file=os.environ.get("LOG_FILE", "music-ingest.log"),
         )
 

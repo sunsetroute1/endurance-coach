@@ -31,9 +31,11 @@ function Write-VpnLog {
 
 function Get-WanAdapterName {
     $candidates = @(
-        (Join-Path (Split-Path $PSScriptRoot -Parent) 'installer\local.json'),
-        'C:\Users\adminnie\Projects\endurance-coach\installer\local.json'
+        (Join-Path (Split-Path $PSScriptRoot -Parent) 'installer\local.json')
     )
+    if ($env:ENDURANCE_COACH_ROOT) {
+        $candidates += (Join-Path $env:ENDURANCE_COACH_ROOT 'installer\local.json')
+    }
     foreach ($path in $candidates) {
         if (-not (Test-Path $path)) { continue }
         try {

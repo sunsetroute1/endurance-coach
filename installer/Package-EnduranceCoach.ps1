@@ -72,7 +72,8 @@ if ($missing.Count -gt 0) {
 $manifest = [ordered]@{
     name             = "endurance-coach-installer"
     created_at       = (Get-Date).ToString("o")
-    project_root     = $ProjectRoot
+    # Relative to repo root — never embed absolute machine paths.
+    project_root     = "."
     stamp            = $Stamp
     checklist        = $checklist
     install_commands = @(

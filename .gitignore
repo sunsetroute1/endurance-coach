@@ -32,6 +32,7 @@ resource-limits.env
 # Runtime
 logs/
 installer/local.json
+installer/package-manifest.json
 coach-active.marker
 data/
 android/

@@ -68,7 +68,7 @@ if ($proc.ExitCode -ne 0) {
 
 & docker ps --format '{{.Names}}: {{.Status}}'
 
-$watchdog = 'C:\Users\adminnie\Projects\endurance-coach\scripts\vpn_network_watchdog.ps1'
+$watchdog = Join-Path $PSScriptRoot 'vpn_network_watchdog.ps1'
 if (Test-Path $watchdog) {
     Write-Step 'Running stack recovery...'
     & $watchdog -ForceRecovery

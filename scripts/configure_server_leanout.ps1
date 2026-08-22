@@ -153,10 +153,19 @@ if (Test-Path $rustDeskTray) {
 }
 
 # --- Scheduled task bloat ---
+# OneDrive tasks embed a machine SID — match by prefix, never hardcode personal SIDs.
+$oneDriveTaskPrefixes = @(
+    'OneDrive Reporting Task-',
+    'OneDrive Standalone Update Task-',
+    'OneDrive Startup Task-'
+)
+foreach ($prefix in $oneDriveTaskPrefixes) {
+    Get-ScheduledTask -ErrorAction SilentlyContinue |
+        Where-Object { $_.TaskName -like "$prefix*" } |
+        ForEach-Object { Disable-ScheduledTaskSafe -TaskName $_.TaskName }
+}
+
 $disableTasks = @(
-    'OneDrive Reporting Task-S-1-5-21-3337704602-430710009-2244514119-1000',
-    'OneDrive Standalone Update Task-S-1-5-21-3337704602-430710009-2244514119-1000',
-    'OneDrive Startup Task-S-1-5-21-3337704602-430710009-2244514119-1000',
     'AMDAutoUpdate',
     'AMDInstallLauncher',
     'AMDLinkUpdate',

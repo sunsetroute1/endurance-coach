@@ -50,7 +50,7 @@ E:\Music\
 ### 1. One-shot installer
 
 ```powershell
-cd C:\Users\adminnie\Projects\endurance-coach
+cd C:\Users\<you>\Projects\endurance-coach
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\music-ingest\install_music_ingest.ps1
 ```
 
@@ -156,7 +156,7 @@ powershell -File .\scripts\music-ingest\fix_album_tags_from_folders.ps1 -RescanN
 ```
 
 ```powershell
-$beet = "C:\Users\adminnie\Projects\endurance-coach\services\music-ingest\.venv\Scripts\beet.exe"
+$beet = ".\services\music-ingest\.venv\Scripts\beet.exe"
 & $beet import -m "E:\Music\Incoming\Soulseek\Some\Album"
 & $beet ls
 & $beet stats
@@ -263,7 +263,7 @@ Existing files under `E:\Music` are preserved.
 - [ ] **Drop test album:** copy a tagged album folder into `Incoming\Soulseek\TestArtist\TestAlbum`
 - [ ] **Wait 2+ minutes** with no file changes
 - [ ] **Verify import:** album appears under `E:\Music\<Artist>\<Album>\...`
-- [ ] **Verify Navidrome:** album visible at `music.santajellyfe.duckdns.org` within ~1 min
+- [ ] **Verify Navidrome:** album visible at `music.example.duckdns.org` within ~1 min
 - [ ] **Check logs:** no errors in `logs/music-ingest.log` or `E:\Music\State\beets-import.log`
 - [ ] **Fallback scan:** `powershell -File .\scripts\music-ingest\run_beets_import.ps1`
 - [ ] **Unit tests:** `python -m pytest tests/test_music_ingest_pipeline.py`
