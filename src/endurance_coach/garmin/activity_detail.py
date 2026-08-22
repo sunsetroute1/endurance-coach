@@ -13,10 +13,15 @@ from pydantic import BaseModel, Field
 from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.db.models import ActivityRecord
 from endurance_coach.garmin.activity_parsing import (
+    _merged_summary,
     format_activity_type_name,
+    parse_activity_energy,
     parse_activity_flags,
+    parse_activity_performance,
     parse_heart_rate_zones,
     parse_pace_splits,
+    parse_power_metrics,
+    parse_power_zones,
     parse_running_dynamics,
     parse_training_effect,
     pace_min_per_mile,
@@ -51,14 +56,59 @@ class HeartRateZonesDetail(BaseModel):
     z5_time_min: int = 0
 
 
+class PowerMetricsDetail(BaseModel):
+    avg_watts: int | None = None
+    max_watts: int | None = None
+    min_watts: int | None = None
+    normalized_watts: int | None = None
+
+
+class PowerZonesDetail(BaseModel):
+    z1_time_min: int = 0
+    z2_time_min: int = 0
+    z3_time_min: int = 0
+    z4_time_min: int = 0
+    z5_time_min: int = 0
+
+
+class ActivityEnergyDetail(BaseModel):
+    calories: int | None = None
+    bmr_calories: int | None = None
+
+
+class ActivityPerformanceDetail(BaseModel):
+    min_hr: int | None = None
+    max_speed_mps: float | None = None
+    avg_speed_mps: float | None = None
+    moving_duration_s: int | None = None
+    elapsed_duration_s: int | None = None
+    lap_count: int | None = None
+    elevation_loss_m: float | None = None
+
+
 class PaceSplitDetail(BaseModel):
-    mile: int
+    lap: int
     time_sec: int
+    distance_m: float | None = None
+    avg_pace_min_per_mi: float | None = None
     avg_hr: int | None = None
+    max_hr: int | None = None
+    avg_cadence_spm: int | None = None
+    max_cadence_spm: int | None = None
+    avg_power_w: int | None = None
+    max_power_w: int | None = None
+    avg_vertical_ratio_pct: float | None = None
+    avg_stride_length_m: float | None = None
+    avg_vertical_oscillation_cm: float | None = None
+    avg_ground_contact_time_ms: int | None = None
 
 
 class DetailedActivityResponse(BaseModel):
-    activity_id: str = Field(description="Garmin provider activity id.")
+    id: str = Field(description="Internal activity UUID.")
+    activity_id: str = Field(
+        description="Provider activity id (Garmin activity id). Alias of provider_activity_id."
+    )
+    provider_activity_id: str = Field(description="Provider activity id (Garmin activity id).")
     date: str = Field(description="Calendar date (YYYY-MM-DD) when the activity started.")
     start_time: str = Field(description="Local start time (HH:MM:SS).")
     activity_type: str
@@ -69,12 +119,19 @@ class DetailedActivityResponse(BaseModel):
     avg_pace_min_per_mi: float | None = None
     avg_hr: int | None = None
     max_hr: int | None = None
+    min_hr: int | None = None
     total_ascent_ft: int | None = None
     total_descent_ft: int | None = None
     exercise_load: int | None = None
+    calories: int | None = None
+    bmr_calories: int | None = None
+    moving_duration_s: int | None = None
     training_effect: TrainingEffectDetail = Field(default_factory=TrainingEffectDetail)
     running_dynamics: RunningDynamicsDetail = Field(default_factory=RunningDynamicsDetail)
+    power: PowerMetricsDetail = Field(default_factory=PowerMetricsDetail)
+    power_zones: PowerZonesDetail = Field(default_factory=PowerZonesDetail)
     heart_rate_zones: HeartRateZonesDetail = Field(default_factory=HeartRateZonesDetail)
+    performance: ActivityPerformanceDetail = Field(default_factory=ActivityPerformanceDetail)
     pace_splits: list[PaceSplitDetail] = Field(default_factory=list)
 
 
@@ -114,7 +171,7 @@ class DetailedActivityService:
             if laps:
                 detail = {**detail, "lapDTOs": laps}
 
-        merged = self._merged_summary(payload)
+        merged = _merged_summary(payload)
         type_key = type_key_from_payload(payload, merged)
         activity_type = format_activity_type_name(type_key, activity.name)
         is_treadmill, is_trail = parse_activity_flags(merged, activity.name, type_key)
@@ -142,11 +199,17 @@ class DetailedActivityService:
 
         training_effect_data = parse_training_effect(merged)
         dynamics_data = parse_running_dynamics(merged, detail)
+        power_data = parse_power_metrics(merged)
+        power_zones_data = parse_power_zones(merged)
         zones_data = parse_heart_rate_zones(merged)
+        energy_data = parse_activity_energy(merged)
+        performance_data = parse_activity_performance(merged)
         splits_data = parse_pace_splits(detail)
 
         return DetailedActivityResponse(
+            id=str(activity.id),
             activity_id=activity.provider_record_id,
+            provider_activity_id=activity.provider_record_id,
             date=local_started.date().isoformat(),
             start_time=local_started.strftime("%H:%M:%S"),
             activity_type=activity_type,
@@ -157,12 +220,19 @@ class DetailedActivityService:
             avg_pace_min_per_mi=pace_min_per_mile(activity.distance_meters, activity.duration_seconds),
             avg_hr=activity.avg_heart_rate,
             max_hr=activity.max_heart_rate or as_int(merged.get("maxHR")),
+            min_hr=performance_data.get("min_hr"),
             total_ascent_ft=total_ascent_ft,
             total_descent_ft=total_descent_ft,
             exercise_load=exercise_load,
+            calories=energy_data.get("calories"),
+            bmr_calories=energy_data.get("bmr_calories"),
+            moving_duration_s=performance_data.get("moving_duration_s"),
             training_effect=TrainingEffectDetail(**training_effect_data),
             running_dynamics=RunningDynamicsDetail(**dynamics_data),
+            power=PowerMetricsDetail(**power_data),
+            power_zones=PowerZonesDetail(**power_zones_data),
             heart_rate_zones=HeartRateZonesDetail(**zones_data),
+            performance=ActivityPerformanceDetail(**performance_data),
             pace_splits=[PaceSplitDetail(**split) for split in splits_data],
         )
 
@@ -174,18 +244,21 @@ class DetailedActivityService:
         activity_id: str | None,
     ) -> ActivityRecord | None:
         if activity_id:
-            return await self._data_repo.get_activity_by_provider_record_id(user_id, activity_id)
+            candidate = activity_id.strip()
+            # Accept internal DB UUID (from get_recent_activities) or Garmin provider id.
+            try:
+                internal_id = UUID(candidate)
+            except ValueError:
+                internal_id = None
+            if internal_id is not None:
+                activity = await self._data_repo.get_activity_by_id(user_id, internal_id)
+                if activity is not None:
+                    return activity
+            return await self._data_repo.get_activity_by_provider_record_id(user_id, candidate)
         if target_date is not None:
-            return await self._data_repo.get_activity_for_date(user_id, target_date)
+            return await self._data_repo.get_activity_for_date(
+                user_id,
+                target_date,
+                timezone=self._timezone,
+            )
         return await self._data_repo.get_most_recent_activity(user_id)
-
-    @staticmethod
-    def _merged_summary(payload: dict[str, Any]) -> dict[str, Any]:
-        summary = payload.get("summary", payload)
-        detail = payload.get("detail", {})
-        dto = detail.get("summaryDTO", {}) if isinstance(detail, dict) else {}
-        if not isinstance(summary, dict):
-            summary = {}
-        if not isinstance(dto, dict):
-            dto = {}
-        return {**summary, **dto}

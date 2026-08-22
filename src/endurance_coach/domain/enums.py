@@ -5,6 +5,7 @@ from enum import StrEnum
 
 class DataProviderType(StrEnum):
     GARMIN = "garmin"
+    SAMSUNG_HEALTH = "samsung_health"
     HEALTH_CONNECT = "health_connect"
     WHOOP = "whoop"
     OURA = "oura"

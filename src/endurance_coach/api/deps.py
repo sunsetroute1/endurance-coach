@@ -13,6 +13,7 @@ from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.coach.service import DefaultCoachService, build_coach_service
 from endurance_coach.collector.providers.garmin import GarminDataProvider, GarminTokenStore
+from endurance_coach.collector.providers.samsung import SamsungHealthDataProvider, SamsungHealthImportService
 from endurance_coach.collector.providers.strava import StravaDataProvider, StravaTokenStore
 from endurance_coach.collector.repositories import (
     SqlAlchemyProviderConnectionRepository,
@@ -38,6 +39,8 @@ class RequestServices:
     coach_service: DefaultCoachService
     token_store: GarminTokenStore
     strava_token_store: StravaTokenStore
+    samsung_import_service: SamsungHealthImportService
+    samsung_provider: SamsungHealthDataProvider
 
 
 def get_container(request: Request) -> Container:
@@ -75,11 +78,24 @@ async def get_request_services(request: Request) -> AsyncGenerator[RequestServic
             connection_repo=connection_repo,
             sync_days=container.settings.strava_sync_days,
         )
+        samsung_import_service = SamsungHealthImportService(
+            raw_payload_repo=raw_repo,
+            sync_job_repo=sync_job_repo,
+            connection_repo=connection_repo,
+        )
+        samsung_provider = SamsungHealthDataProvider(
+            import_service=samsung_import_service,
+            sync_job_repo=sync_job_repo,
+            connection_repo=connection_repo,
+            import_dir=container.settings.samsung_health_import_dir,
+            public_base_url=container.settings.public_base_url,
+        )
 
         orchestrator = DefaultSyncOrchestrator(
             providers={
                 garmin_provider.provider_type: garmin_provider,
                 strava_provider.provider_type: strava_provider,
+                samsung_provider.provider_type: samsung_provider,
             }
         )
         processor_pipeline = DefaultProcessorPipeline(
@@ -105,5 +121,7 @@ async def get_request_services(request: Request) -> AsyncGenerator[RequestServic
             coach_service=coach_service,
             token_store=token_store,
             strava_token_store=strava_token_store,
+            samsung_import_service=samsung_import_service,
+            samsung_provider=samsung_provider,
         )
         await session.commit()

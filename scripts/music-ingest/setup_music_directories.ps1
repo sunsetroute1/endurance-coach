@@ -4,7 +4,6 @@ $ErrorActionPreference = "Stop"
 $dirs = @(
     "E:\Music\Incoming\Soulseek",
     "E:\Music\Incoming\Soulseek\incomplete",
-    "E:\Music\Library",
     "E:\Music\Quarantine",
     "E:\Music\State"
 )

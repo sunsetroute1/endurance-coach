@@ -123,8 +123,7 @@ try {
             exit 2
         }
     } elseif ($status.status -eq "partial") {
-        Write-Log "Morning readiness partial outside 9:00-9:01 AM window; sending nothing."
-        exit 2
+        Write-Log "Morning readiness partial outside 9:00-9:01 AM window; sync succeeded, readiness still partial."
     }
 
     Write-Log "Pipeline complete."

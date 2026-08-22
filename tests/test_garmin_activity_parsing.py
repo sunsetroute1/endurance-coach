@@ -1,8 +1,13 @@
 """Tests for Garmin activity detail parsing."""
 
 from endurance_coach.garmin.activity_parsing import (
+    build_activity_coaching_metrics,
+    parse_activity_energy,
+    parse_activity_performance,
     parse_heart_rate_zones,
     parse_pace_splits,
+    parse_power_metrics,
+    parse_power_zones,
     parse_running_dynamics,
     parse_training_effect,
     pace_min_per_mile,
@@ -43,8 +48,39 @@ def test_parse_pace_splits() -> None:
     detail = activity_payload().payload["detail"]
     result = parse_pace_splits(detail)
     assert len(result) == 2
-    assert result[0] == {"mile": 1, "time_sec": 600, "avg_hr": 115}
-    assert result[1]["mile"] == 2
+    assert result[0]["lap"] == 1
+    assert result[0]["time_sec"] == 600
+    assert result[0]["avg_hr"] == 115
+    assert result[0]["avg_cadence_spm"] == 150
+    assert result[0]["avg_power_w"] == 230
+    assert result[1]["lap"] == 2
+
+
+def test_parse_power_and_energy() -> None:
+    merged = activity_payload().payload["summary"]
+    power = parse_power_metrics(merged)
+    assert power["avg_watts"] == 245
+    assert power["max_watts"] == 410
+    assert power["normalized_watts"] == 258
+
+    energy = parse_activity_energy(merged)
+    assert energy["calories"] == 612
+
+    performance = parse_activity_performance(merged)
+    assert performance["min_hr"] == 98
+    assert performance["moving_duration_s"] == 2950
+
+    zones = parse_power_zones(merged)
+    assert zones["z3_time_min"] == 20
+
+
+def test_build_activity_coaching_metrics() -> None:
+    payload = activity_payload().payload
+    metrics = build_activity_coaching_metrics(payload)
+    assert metrics["running_dynamics"]["avg_cadence_spm"] == 153
+    assert metrics["power"]["avg_watts"] == 245
+    assert metrics["energy"]["calories"] == 612
+    assert len(metrics["laps"]) == 2
 
 
 def test_pace_min_per_mile() -> None:

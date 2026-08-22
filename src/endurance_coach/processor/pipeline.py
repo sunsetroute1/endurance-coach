@@ -18,6 +18,13 @@ from endurance_coach.processor.providers.garmin.normalizers import (
     GarminStressNormalizer,
 )
 from endurance_coach.processor.providers.strava.normalizers import StravaActivityNormalizer
+from endurance_coach.processor.providers.samsung.normalizers import (
+    SamsungActivityNormalizer,
+    SamsungHRVNormalizer,
+    SamsungSleepNormalizer,
+    SamsungStepsNormalizer,
+    SamsungStressNormalizer,
+)
 from endurance_coach.processor.repositories import SqlAlchemyNormalizedRecordRepository
 
 logger = logging.getLogger(__name__)
@@ -49,6 +56,11 @@ class DefaultProcessorPipeline:
         self._body_battery_normalizer = GarminBodyBatteryNormalizer()
         self._stress_normalizer = GarminStressNormalizer()
         self._steps_normalizer = GarminStepsNormalizer()
+        self._samsung_activity_normalizer = SamsungActivityNormalizer()
+        self._samsung_sleep_normalizer = SamsungSleepNormalizer()
+        self._samsung_steps_normalizer = SamsungStepsNormalizer()
+        self._samsung_hrv_normalizer = SamsungHRVNormalizer()
+        self._samsung_stress_normalizer = SamsungStressNormalizer()
 
     async def process_pending(
         self,
@@ -90,6 +102,9 @@ class DefaultProcessorPipeline:
             return
         if payload.provider == DataProviderType.STRAVA:
             await self._process_strava_payload(payload)
+            return
+        if payload.provider == DataProviderType.SAMSUNG_HEALTH:
+            await self._process_samsung_payload(payload)
             return
         raise ValueError(f"Unsupported provider: {payload.provider}")
 
@@ -139,3 +154,31 @@ class DefaultProcessorPipeline:
             raise ValueError(f"Unsupported Strava resource type: {payload.resource_type}")
         activity = await self._strava_activity_normalizer.normalize(payload)
         await self._normalized_repo.upsert_activity(activity)
+
+    async def _process_samsung_payload(self, payload: RawPayload) -> None:
+        if payload.resource_type == ResourceType.ACTIVITIES:
+            activity = await self._samsung_activity_normalizer.normalize(payload)
+            await self._normalized_repo.upsert_activity(activity)
+            return
+
+        if payload.resource_type == ResourceType.SLEEP:
+            sleep = await self._samsung_sleep_normalizer.normalize(payload)
+            await self._normalized_repo.upsert_sleep(sleep)
+            return
+
+        if payload.resource_type == ResourceType.STEPS:
+            steps = await self._samsung_steps_normalizer.normalize(payload)
+            await self._normalized_repo.upsert_steps(steps)
+            return
+
+        if payload.resource_type == ResourceType.HRV:
+            hrv = await self._samsung_hrv_normalizer.normalize(payload)
+            await self._normalized_repo.upsert_hrv(hrv)
+            return
+
+        if payload.resource_type == ResourceType.STRESS:
+            stress = await self._samsung_stress_normalizer.normalize(payload)
+            await self._normalized_repo.upsert_stress(stress)
+            return
+
+        raise ValueError(f"Unsupported Samsung resource type: {payload.resource_type}")

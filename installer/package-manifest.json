@@ -1,0 +1,57 @@
+﻿{
+    "name":  "endurance-coach-installer",
+    "created_at":  "2026-08-21T19:18:51.2228107-06:00",
+    "project_root":  "C:\\Users\\adminnie\\Projects\\endurance-coach",
+    "stamp":  "20260821",
+    "checklist":  [
+                      {
+                          "path":  "installer/Install-EnduranceCoach.ps1",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "installer/Package-EnduranceCoach.ps1",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "docker-compose.yml",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "scripts/garmin_auth.py",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "scripts/coach-stack-helpers.ps1",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "scripts/install_all_services.ps1",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "scripts/generate_api_secret.ps1",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "src/endurance_coach/mcp/http_middleware.py",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "src/endurance_coach/mcp/server.py",
+                          "exists":  true
+                      },
+                      {
+                          "path":  ".env.example",
+                          "exists":  true
+                      },
+                      {
+                          "path":  "requirements.txt",
+                          "exists":  true
+                      }
+                  ],
+    "install_commands":  [
+                             "powershell -ExecutionPolicy Bypass -File installer\\Install-EnduranceCoach.ps1 -Docker",
+                             "powershell -ExecutionPolicy Bypass -File installer\\Install-EnduranceCoach.ps1 -Repair",
+                             "powershell -ExecutionPolicy Bypass -File installer\\Install-EnduranceCoach.ps1 -Repair -Docker"
+                         ]
+}

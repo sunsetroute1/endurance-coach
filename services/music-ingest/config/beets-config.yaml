@@ -1,8 +1,12 @@
 # Beets configuration for native Windows music ingestion.
 # Installed to %APPDATA%\beets\config.yaml by install_music_ingest.ps1
 
-directory: E:\Music\Library
+directory: E:\Music
 library: E:\Music\State\beets-library.blb
+
+# Custom plugins (fromfolder). Replaced by install_music_ingest.ps1.
+pluginpath:
+  - MUSIC_INGEST_PLUGINPATH
 
 import:
   move: yes
@@ -11,47 +15,98 @@ import:
   autotag: yes
   timid: no
   quiet: yes
-  incremental: yes
+  quiet_fallback: asis
+  incremental: no
   duplicate_action: merge
   log: E:\Music\State\beets-import.log
 
 paths:
   default: $albumartist/$album%aunique{}/$track $title
-  singleton: Non-Album/$artist - $title
+  singleton: $artist/Singles/$title
   comp: Compilations/$album%aunique{}/$track $title
   albumtype_soundtrack: Soundtracks/$album/$track $title
 
-plugins: fetchart embedart scrub duplicates badfiles
+# fetchart/embedart: multi-source art at import; fromfolder/fromfilename: path-based tags.
+plugins: fromfolder fetchart embedart scrub duplicates badfiles lastgenre fromfilename rewrite zero missing
 
 scrub:
   auto: yes
 
+rewrite:
+  artist ^\[cover\]\s*: ""
+  artist ^\[unknown\]\s*: ""
+  album ^\[cover\]$: ""
+  album ^unknown album$: ""
+  album ^\[\d+\]$: ""
+  albumartist ^\[cover\]\s*: ""
+  title ^BandCampDownloader\.app\s*-\s*: ""
+
 fetchart:
   auto: yes
   cautious: yes
-  coverart: yes
-  coverart_priority: Cover Art Archive
-  minwidth: 0
+  minwidth: 400
+  # Try local folder art first, then MusicBrainz/CAA, then commercial catalogs.
+  sources:
+    - filesystem
+    - coverart
+    - itunes
+    - amazon
+    - albumart
+    - wikipedia
+    # Add lastfm when LASTFM_API_KEY is set in pipeline.env (install script injects lastfm_key).
+  store_source: no
+  cover_names: [cover, front, art, album, folder, folderart, thumb]
 
 embedart:
   auto: yes
   ifempty: yes
   remove_art_file: no
 
+lastgenre:
+  auto: yes
+  source: album
+  force: no
+  count: 2
+  min_weight: 10
+  fallback: Unknown
+  canonical: yes
+  # lastfm_key: set by install_music_ingest.ps1 when LASTFM_API_KEY is in pipeline.env
+
+fromfolder:
+  auto: yes
+  # Replace album/artist when tags are empty or Soulseek junk like [Cover] / Unknown Album.
+  junk_albums:
+    - '^\s*$'
+    - '^\[cover\]$'
+    - '^\[unknown\]$'
+    - '^unknown album$'
+    - '^unknown$'
+    - '^\[\d+\]$'
+  junk_artists:
+    - '^\s*$'
+    - '^\[cover\]$'
+    - '^\[unknown\]$'
+    - '^unknown artist$'
+    - '^unknown$'
+
+fromfilename:
+  # Helps Soulseek downloads with empty or junk title tags.
+
 duplicates:
+  # Use CLI `beet duplicates` / `beet dup` to inspect; do not auto-delete.
   album: yes
   item: yes
-  format: yes
-  checksum: yes
-  copy: no
-  delete: no
-  move: no
+
+zero:
+  auto: yes
+  fields: album artist albumartist title track
+  keep_empty: false
+
+missing:
   count: no
-  full: yes
-  path: no
 
 badfiles:
-  check_on_import: yes
+  check_on_import: no
   keep_bad_files: yes
 
 # Optional replaygain (requires mp3gain on PATH). See docs/MUSIC_INGEST_PIPELINE.md.
@@ -59,13 +114,13 @@ badfiles:
 #   auto: yes
 #   backend: command
 #   command: mp3gain
-#   r128: mp3 mp4 opus flac
+#   r128: mp3 m4a mp4 opus flac
 
 match:
   strong_rec_thresh: 0.04
   medium_rec_thresh: 0.25
   rec_gap_thresh: 0.25
-  max_rec_thresh: 0.50
+  max_rec_thresh: 0.60
 
 ui:
   color: no

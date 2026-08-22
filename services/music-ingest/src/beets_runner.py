@@ -11,6 +11,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from bandcamp_ingest import is_bandcamp_folder, prepare_bandcamp_folder
 from pipeline_config import AUDIO_EXTENSIONS, PipelineConfig, is_audio_file, is_ignored_path
 
 logger = logging.getLogger("music_ingest.beets")
@@ -99,7 +100,37 @@ def resolve_beet_executable(venv_python: Path | None = None) -> list[str]:
     return [sys.executable, "-m", "beets.ui.cli"]
 
 
-def run_beet_import(folder: Path, config: PipelineConfig, venv_python: Path | None = None) -> int:
+def import_looks_successful(stdout: str, stderr: str, folder: Path) -> bool:
+    """Return True when beets actually imported rather than skipping everything."""
+    combined = f"{stdout}\n{stderr}".lower()
+    if any(token in combined for token in ("importing as-is", "moving ", "added ", "tagging ", "embedding")):
+        return True
+
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if lines:
+        skipped_only = all(line.endswith("Skipping.") or line.endswith("Skipping") for line in lines)
+        if skipped_only:
+            return False
+
+    if not folder.exists():
+        return True
+    return count_audio_files(folder) == 0
+
+
+def run_beet_import(folder: Path, config: PipelineConfig, venv_python: Path | None = None) -> tuple[int, bool]:
+    if is_bandcamp_folder(folder):
+        bandcamp = prepare_bandcamp_folder(folder)
+        if bandcamp.warnings:
+            for warning in bandcamp.warnings[:10]:
+                logger.warning("Bandcamp prep: %s", warning)
+        if bandcamp.prepared:
+            logger.info(
+                "Bandcamp prep complete for %s (%s tracks, url=%s)",
+                folder,
+                bandcamp.matched,
+                bandcamp.url,
+            )
+
     env = os.environ.copy()
     env["BEETSDIR"] = str(config.beets_config.parent)
     beet_cmd = resolve_beet_executable(venv_python)
@@ -109,7 +140,8 @@ def run_beet_import(folder: Path, config: PipelineConfig, venv_python: Path | No
         str(config.beets_config),
         "import",
         "-q",
-        "-s",
+        "--quiet-fallback=asis",
+        "-I",
         "-m",
         str(folder),
     ]
@@ -119,16 +151,18 @@ def run_beet_import(folder: Path, config: PipelineConfig, venv_python: Path | No
         logger.info("beet stdout: %s", result.stdout.strip()[-4000:])
     if result.stderr.strip():
         logger.warning("beet stderr: %s", result.stderr.strip()[-4000:])
-    return result.returncode
+    succeeded = result.returncode == 0 and import_looks_successful(result.stdout, result.stderr, folder)
+    return result.returncode, succeeded
 
 
-def mark_processed(state_path: Path, folder: Path, return_code: int) -> None:
+def mark_processed(state_path: Path, folder: Path, return_code: int, imported: bool) -> None:
     state = load_json(state_path, default={})
     if not isinstance(state, dict):
         state = {}
     state[str(folder.resolve()).lower()] = {
         "path": str(folder),
         "return_code": return_code,
+        "imported": imported,
         "processed_at": _utc_now(),
     }
     save_json(state_path, state)
@@ -141,7 +175,7 @@ def already_processed(state_path: Path, folder: Path) -> bool:
     entry = state.get(str(folder.resolve()).lower())
     if not entry:
         return False
-    return int(entry.get("return_code", 1)) == 0
+    return bool(entry.get("imported")) and int(entry.get("return_code", 1)) == 0
 
 
 def import_stable_folder(folder: Path, config: PipelineConfig, venv_python: Path | None = None) -> bool:
@@ -153,14 +187,17 @@ def import_stable_folder(folder: Path, config: PipelineConfig, venv_python: Path
         logger.debug("Folder not stable yet: %s", folder)
         return False
 
-    return_code = run_beet_import(folder, config, venv_python=venv_python)
-    mark_processed(config.processed_state_path, folder, return_code)
+    return_code, succeeded = run_beet_import(folder, config, venv_python=venv_python)
+    mark_processed(config.processed_state_path, folder, return_code, succeeded)
 
-    if return_code == 0:
+    if succeeded:
         logger.info("Imported %s successfully", folder)
         return True
 
-    logger.error("beets import failed (%s) for %s", return_code, folder)
+    if return_code != 0:
+        logger.error("beets import failed (%s) for %s", return_code, folder)
+    else:
+        logger.warning("beets skipped %s without importing tracks", folder)
     return False
 
 

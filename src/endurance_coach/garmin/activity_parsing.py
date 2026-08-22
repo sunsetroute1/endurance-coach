@@ -134,6 +134,80 @@ def parse_running_dynamics(merged: dict[str, Any], detail: dict[str, Any]) -> di
     }
 
 
+def parse_power_metrics(merged: dict[str, Any]) -> dict[str, int | None]:
+    return {
+        "avg_watts": as_int(merged.get("averagePower") or merged.get("avgPower")),
+        "max_watts": as_int(merged.get("maxPower")),
+        "min_watts": as_int(merged.get("minPower")),
+        "normalized_watts": as_int(merged.get("normalizedPower") or merged.get("normPower")),
+    }
+
+
+def parse_power_zones(merged: dict[str, Any]) -> dict[str, int]:
+    zones: dict[str, int] = {}
+    for zone in range(1, 6):
+        seconds = as_float(
+            merged.get(f"powerTimeInZone_{zone}")
+            or merged.get(f"timeInPowerZone{zone}")
+        )
+        zones[f"z{zone}_time_min"] = round(seconds / SECONDS_PER_MINUTE) if seconds else 0
+    return zones
+
+
+def parse_activity_energy(merged: dict[str, Any]) -> dict[str, int | None]:
+    return {
+        "calories": as_int(merged.get("calories")),
+        "bmr_calories": as_int(merged.get("bmrCalories")),
+    }
+
+
+def parse_activity_performance(merged: dict[str, Any]) -> dict[str, int | float | None]:
+    return {
+        "min_hr": as_int(merged.get("minHR")),
+        "max_speed_mps": as_float(merged.get("maxSpeed")),
+        "avg_speed_mps": as_float(merged.get("averageSpeed") or merged.get("avgSpeed")),
+        "moving_duration_s": as_int(merged.get("movingDuration")),
+        "elapsed_duration_s": as_int(merged.get("elapsedDuration")),
+        "lap_count": as_int(merged.get("lapCount")),
+        "elevation_loss_m": as_float(merged.get("elevationLoss")),
+    }
+
+
+def _parse_lap_row(lap: dict[str, Any], index: int) -> dict[str, int | float | None] | None:
+    duration = as_float(lap.get("duration") or lap.get("movingDuration"))
+    if duration is None or duration <= 0:
+        return None
+
+    distance = as_float(lap.get("distance"))
+    stride = _stride_length_meters(
+        as_float(lap.get("avgStrideLength") or lap.get("strideLength"))
+    )
+    vertical_osc = as_float(lap.get("avgVerticalOscillation") or lap.get("verticalOscillation"))
+    if vertical_osc is not None and vertical_osc > 20:
+        vertical_osc = round(vertical_osc / 10.0, 1)
+
+    return {
+        "lap": as_int(lap.get("lapIndex")) or index,
+        "time_sec": round(duration),
+        "distance_m": round(distance, 1) if distance is not None else None,
+        "avg_pace_min_per_mi": pace_min_per_mile(distance, round(duration)),
+        "avg_hr": as_int(lap.get("averageHR") or lap.get("avgHr")),
+        "max_hr": as_int(lap.get("maxHR") or lap.get("maxHr")),
+        "avg_cadence_spm": as_int(lap.get("averageRunCadence") or lap.get("avgCadence")),
+        "max_cadence_spm": as_int(lap.get("maxRunCadence") or lap.get("maxCadence")),
+        "avg_power_w": as_int(lap.get("averagePower") or lap.get("avgPower")),
+        "max_power_w": as_int(lap.get("maxPower")),
+        "avg_vertical_ratio_pct": round(as_float(lap.get("avgVerticalRatio")), 1)
+        if as_float(lap.get("avgVerticalRatio")) is not None
+        else None,
+        "avg_stride_length_m": stride,
+        "avg_vertical_oscillation_cm": round(vertical_osc, 1) if vertical_osc is not None else None,
+        "avg_ground_contact_time_ms": as_int(
+            lap.get("avgGroundContactTime") or lap.get("groundContactTime")
+        ),
+    }
+
+
 def parse_pace_splits(detail: dict[str, Any]) -> list[dict[str, int | float | None]]:
     if not isinstance(detail, dict):
         return []
@@ -146,18 +220,29 @@ def parse_pace_splits(detail: dict[str, Any]) -> list[dict[str, int | float | No
     for lap in laps:
         if not isinstance(lap, dict):
             continue
-        duration = as_float(lap.get("duration") or lap.get("movingDuration"))
-        if duration is None or duration <= 0:
-            continue
-        mile_index = as_int(lap.get("lapIndex")) or len(splits) + 1
-        splits.append(
-            {
-                "mile": mile_index,
-                "time_sec": round(duration),
-                "avg_hr": as_int(lap.get("averageHR") or lap.get("avgHr")),
-            }
-        )
+        row = _parse_lap_row(lap, len(splits) + 1)
+        if row is not None:
+            splits.append(row)
     return splits
+
+
+def build_activity_coaching_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extract all coaching-relevant Garmin metrics from a stored activity payload."""
+    merged = _merged_summary(payload)
+    detail = payload.get("detail", {})
+    if not isinstance(detail, dict):
+        detail = {}
+
+    return {
+        "running_dynamics": parse_running_dynamics(merged, detail),
+        "power": parse_power_metrics(merged),
+        "power_zones": parse_power_zones(merged),
+        "heart_rate_zones": parse_heart_rate_zones(merged),
+        "training_effect": parse_training_effect(merged),
+        "energy": parse_activity_energy(merged),
+        "performance": parse_activity_performance(merged),
+        "laps": parse_pace_splits(detail),
+    }
 
 
 def pace_min_per_mile(distance_meters: float | None, duration_seconds: int | None) -> float | None:

@@ -36,6 +36,9 @@ class StubDataRepo:
     async def get_most_recent_activity(self, user_id):
         return self.activity
 
+    async def get_activity_by_id(self, user_id, activity_id):
+        return self.activity if activity_id == self.activity.id else None
+
     async def get_activity_by_provider_record_id(self, user_id, provider_record_id):
         return self.activity if provider_record_id == "101" else None
 
@@ -52,10 +55,13 @@ class StubDataRepo:
 
 @pytest.mark.asyncio
 async def test_detailed_activity_service_builds_response() -> None:
-    service = DetailedActivityService(StubDataRepo(), timezone="America/Denver")
+    repo = StubDataRepo()
+    service = DetailedActivityService(repo, timezone="America/Denver")
     response = await service.get_detailed_activity(USER_ID)
 
     assert response.activity_id == "101"
+    assert response.provider_activity_id == "101"
+    assert response.id == str(repo.activity.id)
     assert response.date == "2026-07-15"
     assert response.start_time == "08:20:26"
     assert response.activity_type == "Treadmill Running"
@@ -66,10 +72,25 @@ async def test_detailed_activity_service_builds_response() -> None:
     assert response.avg_hr == 123
     assert response.max_hr == 150
     assert response.exercise_load == 32
+    assert response.calories == 612
+    assert response.min_hr == 98
+    assert response.moving_duration_s == 2950
     assert response.training_effect.aerobic == 1.2
     assert response.training_effect.primary_benefit == "Base (Low Aerobic)"
     assert response.running_dynamics.avg_cadence_spm == 153
+    assert response.power.avg_watts == 245
+    assert response.power.max_watts == 410
     assert response.heart_rate_zones.z2_time_min == 25
     assert len(response.pace_splits) == 2
-    assert response.pace_splits[0].mile == 1
+    assert response.pace_splits[0].lap == 1
     assert response.pace_splits[0].time_sec == 600
+    assert response.pace_splits[0].avg_power_w == 230
+
+
+@pytest.mark.asyncio
+async def test_detailed_activity_resolves_internal_uuid() -> None:
+    repo = StubDataRepo()
+    service = DetailedActivityService(repo, timezone="America/Denver")
+    response = await service.get_detailed_activity(USER_ID, activity_id=str(repo.activity.id))
+    assert response.activity_id == "101"
+    assert response.id == str(repo.activity.id)

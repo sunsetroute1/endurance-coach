@@ -1,46 +1,207 @@
+name: endurance-coach
+
+
+
+x-coach-image: &coach-image
+
+  build: .
+
+  image: endurance-coach:latest
+
+
+
+x-common: &common
+
+  restart: unless-stopped
+
+  logging:
+
+    driver: local
+
+    options:
+
+      max-size: "10m"
+
+      max-file: "3"
+
+
+
 services:
+
   postgres:
+
+    <<: *common
+
     image: postgres:16-alpine
+
+    container_name: endurance-postgres
+
+    mem_limit: ${MEM_POSTGRES:-512m}
+
+    mem_reservation: ${MEM_POSTGRES_RES:-192m}
+
+    cpus: ${CPU_POSTGRES:-0.5}
+
     environment:
+
       POSTGRES_USER: endurance
+
       POSTGRES_PASSWORD: endurance
+
       POSTGRES_DB: endurance_coach
+
     ports:
+
       - "5432:5432"
+
     volumes:
+
       - postgres_data:/var/lib/postgresql/data
+
     healthcheck:
+
       test: ["CMD-SHELL", "pg_isready -U endurance -d endurance_coach"]
+
       interval: 5s
+
       timeout: 5s
-      retries: 5
+
+      retries: 10
+
+
 
   api:
-    build: .
-    command: uvicorn endurance_coach.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+    <<: [*coach-image, *common]
+
+    container_name: endurance-api
+
+    mem_limit: ${MEM_API:-768m}
+
+    mem_reservation: ${MEM_API_RES:-256m}
+
+    cpus: ${CPU_API:-0.75}
+
+    command: uvicorn endurance_coach.api.main:app --host 0.0.0.0 --port 8000
+
     ports:
+
       - "8000:8000"
+
     env_file: .env
+
     environment:
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:8000}
+
+      DATABASE_URL: postgresql+asyncpg://endurance:endurance@postgres:5432/endurance_coach
+
     volumes:
-      - ./src:/app/src
+
       - ${USERPROFILE}/.garminconnect:/root/.garminconnect:ro
+
+      - ${USERPROFILE}/.endurance-coach:/root/.endurance-coach
+
     depends_on:
+
       postgres:
+
         condition: service_healthy
+
+    healthcheck:
+
+      test:
+
+        [
+
+          "CMD-SHELL",
+
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\"",
+
+        ]
+
+      interval: 15s
+
+      timeout: 10s
+
+      retries: 5
+
+      start_period: 30s
+
+
 
   mcp:
-    build: .
+
+    <<: [*coach-image, *common]
+
+    container_name: endurance-mcp
+
+    mem_limit: ${MEM_MCP:-512m}
+
+    mem_reservation: ${MEM_MCP_RES:-192m}
+
+    cpus: ${CPU_MCP:-0.5}
+
     command: endurance-coach-mcp
+
+    ports:
+
+      - "8080:8080"
+
     env_file: .env
+
+    environment:
+
+      DATABASE_URL: postgresql+asyncpg://endurance:endurance@postgres:5432/endurance_coach
+
+      MCP_HOST: 0.0.0.0
+
+      MCP_TRANSPORT: streamable-http
+
+      MCP_STATELESS_HTTP: "true"
+
+      MCP_JSON_RESPONSE: "true"
+
+      MCP_ADVERTISE_OAUTH_RESOURCE: "false"
+
     volumes:
+
       - ${USERPROFILE}/.garminconnect:/root/.garminconnect:ro
+
+      - ${USERPROFILE}/.endurance-coach:/root/.endurance-coach
+
     depends_on:
+
       postgres:
+
         condition: service_healthy
-    stdin_open: true
-    tty: true
+
+      api:
+
+        condition: service_healthy
+
+    healthcheck:
+
+      test:
+
+        [
+
+          "CMD-SHELL",
+
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\"",
+
+        ]
+
+      interval: 15s
+
+      timeout: 10s
+
+      retries: 5
+
+      start_period: 40s
+
+
 
 volumes:
+
   postgres_data:
+
+
