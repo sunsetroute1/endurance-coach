@@ -285,7 +285,7 @@ Set in `.env`:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://endurance:endurance@postgres:5432/endurance_coach
-PUBLIC_BASE_URL=https://santajellyfe.duckdns.org
+PUBLIC_BASE_URL=https://example.duckdns.org
 OPENAI_API_KEY=sk-...
 COACH_LLM_PROVIDER=openai
 COACH_LLM_MODEL=gpt-4o-mini

@@ -44,11 +44,18 @@ Invoke-Step -Title 'Register endurance-coach scheduled tasks' `
     -ScriptPath (Join-Path $ScriptsDir 'install_all_services.ps1')
 
 # 2. Watchboard with AtLogOn + AtStartup.
-$watchboardInstaller = 'C:\Users\adminnie\Projects\automation-watchboard\installer\Install-AutomationWatchboard.ps1'
-if (Test-Path $watchboardInstaller) {
+$watchboardCandidates = @()
+if ($env:WATCHBOARD_ROOT) {
+    $watchboardCandidates += (Join-Path $env:WATCHBOARD_ROOT 'installer\Install-AutomationWatchboard.ps1')
+}
+# Sibling repo next to endurance-coach: …\Projects\automation-watchboard
+$siblingWatchboard = Join-Path (Split-Path $ProjectRoot -Parent) 'automation-watchboard\installer\Install-AutomationWatchboard.ps1'
+$watchboardCandidates += $siblingWatchboard
+$watchboardInstaller = $watchboardCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($watchboardInstaller) {
     Invoke-Step -Title 'Register Automation Watchboard boot task' -ScriptPath $watchboardInstaller
 } else {
-    Write-Warning "Watchboard installer not found: $watchboardInstaller"
+    Write-Warning "Watchboard installer not found. Set WATCHBOARD_ROOT or place automation-watchboard as a sibling of endurance-coach."
 }
 
 # 3. Post-boot safety net (4 min after boot/logon, after Docker Desktop has time to start).
@@ -79,16 +86,26 @@ if ($existingPostBoot) {
 Set-ScheduledTaskHidden -TaskName $postBootTask | Out-Null
 
 # 4. FanControl + LibreHardwareMonitor: add AtStartup alongside AtLogOn.
+$hwSensorCandidates = @()
+if ($env:WATCHBOARD_ROOT) {
+    $hwSensorCandidates += (Join-Path $env:WATCHBOARD_ROOT 'scripts\ensure_hardware_sensors.ps1')
+}
+$hwSensorCandidates += (Join-Path (Split-Path $ProjectRoot -Parent) 'automation-watchboard\scripts\ensure_hardware_sensors.ps1')
+$hwSensorScript = $hwSensorCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 $logonBootTasks = @(
     @{
         Name = 'FanControl'
         Script = 'C:\ProgramData\mediapc-stack\scripts\ensure-fancontrol.ps1'
-    },
-    @{
-        Name = 'LibreHardwareMonitor'
-        Script = 'C:\Users\adminnie\Projects\automation-watchboard\scripts\ensure_hardware_sensors.ps1'
     }
 )
+if ($hwSensorScript) {
+    $logonBootTasks += @{
+        Name = 'LibreHardwareMonitor'
+        Script = $hwSensorScript
+    }
+} else {
+    Write-Warning 'LibreHardwareMonitor script not found. Set WATCHBOARD_ROOT or use sibling automation-watchboard.'
+}
 foreach ($entry in $logonBootTasks) {
     if (-not (Test-Path $entry.Script)) {
         Write-Warning "Skipping $($entry.Name): missing $($entry.Script)"

@@ -40,7 +40,7 @@ Garmin accounts with 2FA enabled require an interactive login **once** (or when 
 **Option A — project script (no uvx required):**
 
 ```bash
-cd C:\Users\adminnie\Projects\endurance-coach
+cd C:\Users\<you>\Projects\endurance-coach
 python scripts/garmin_auth.py
 ```
 
@@ -77,7 +77,7 @@ The `docker-compose.yml` already mounts `garmin_tokens:/root/.garminconnect:ro`.
 ### 5. Check status via API
 
 ```bash
-curl https://santajellyfe.duckdns.org/api/v1/providers/garmin/status
+curl https://example.duckdns.org/api/v1/providers/garmin/status
 ```
 
 Response includes `mfa_note`, `setup_command`, `verify_command`, and `reauth_command`.
@@ -85,7 +85,7 @@ Response includes `mfa_note`, `setup_command`, `verify_command`, and `reauth_com
 ### 6. Sync
 
 ```bash
-curl -X POST https://santajellyfe.duckdns.org/api/v1/sync/garmin
+curl -X POST https://example.duckdns.org/api/v1/sync/garmin
 ```
 
 ---

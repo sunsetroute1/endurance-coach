@@ -62,7 +62,7 @@ def test_recent_activities_schema_nullable_activitytype() -> None:
 
 def test_transport_allows_perplexity_origins() -> None:
     settings = build_mcp_transport_security_settings(
-        "https://santajellyfe.duckdns.org",
+        "https://example.duckdns.org",
         mcp_port=8080,
     )
     for origin in DEFAULT_CONNECTOR_ORIGINS:

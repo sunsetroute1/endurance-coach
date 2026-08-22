@@ -17,7 +17,7 @@ from endurance_coach.security.mcp_transport import (
 )
 from mcp.server.transport_security import TransportSecurityMiddleware
 
-PUBLIC_HOST = "santajellyfe.duckdns.org"
+PUBLIC_HOST = "example.duckdns.org"
 TEST_SECRET = "test-mcp-secret"
 INIT_BODY = {
     "jsonrpc": "2.0",
@@ -112,8 +112,8 @@ def test_transport_security_origin_validation(
 
 
 def test_parse_host_header_normalizes_port() -> None:
-    assert parse_host_header("Santajellyfe.DuckDNS.org:443") == ("santajellyfe.duckdns.org", 443)
-    assert parse_host_header("santajellyfe.duckdns.org") == ("santajellyfe.duckdns.org", None)
+    assert parse_host_header("Example.DuckDNS.org:443") == ("example.duckdns.org", 443)
+    assert parse_host_header("example.duckdns.org") == ("example.duckdns.org", None)
 
 
 @pytest.mark.asyncio

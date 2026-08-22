@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
-sys.path.insert(0, r"C:\Users\adminnie\Projects\endurance-coach\services\music-ingest\src")
+
+_SRC = Path(__file__).resolve().parents[2] / "services" / "music-ingest" / "src"
+sys.path.insert(0, str(_SRC))
 from folder_tags import read_easy_tags, folder_names_for_path, fix_file_tags, compile_junk, album_from_folder, known_artist
 
 libdir = Path(r"E:\Music")
