@@ -68,6 +68,20 @@ class SqlAlchemyProviderConnectionRepository:
         await self._session.flush()
         return connection
 
+    async def get_connection(
+        self,
+        user_id: UUID,
+        provider: DataProviderType,
+    ) -> ProviderConnection | None:
+        result = await self._session.execute(
+            select(ProviderConnection).where(
+                ProviderConnection.user_id == user_id,
+                ProviderConnection.provider == provider,
+                ProviderConnection.is_active.is_(True),
+            )
+        )
+        return result.scalar_one_or_none()
+
 
 class SqlAlchemySyncJobRepository:
     def __init__(self, session: AsyncSession) -> None:

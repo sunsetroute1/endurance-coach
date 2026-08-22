@@ -243,7 +243,7 @@ Add to Cursor MCP settings (`~/.cursor/mcp.json` or Cursor Settings → MCP):
 
 | Tool | What the LLM gets |
 |------|-------------------|
-| `get_recent_activities` | Normalized activity list |
+| `get_recent_activities` | Paginated activities: `start`, `limit`, `activitytype`, `summary_only` (compact rows for long sweeps) |
 | `get_sleep_summary` | Sleep stages, debt |
 | `get_hrv_trend` | HRV readings + deviation |
 | `get_training_readiness` | Garmin readiness score |

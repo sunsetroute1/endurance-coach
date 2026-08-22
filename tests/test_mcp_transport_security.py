@@ -97,6 +97,8 @@ def test_transport_security_host_validation(
     [
         (None, True),
         (f"https://{PUBLIC_HOST}", True),
+        ("https://www.perplexity.ai", True),
+        ("https://perplexity.ai", True),
         ("https://evil.example.com", False),
         (f"http://{PUBLIC_HOST}", False),
     ],
@@ -213,19 +215,21 @@ def test_mcp_initialize_requires_bearer_token(mcp_client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_mcp_initialize_rejects_invalid_origin(mcp_client: TestClient) -> None:
+def test_mcp_initialize_accepts_perplexity_origin(mcp_client: TestClient) -> None:
     response = mcp_client.post(
         "/mcp",
         headers={
             "Host": PUBLIC_HOST,
-            "Origin": "https://evil.example.com",
+            "Origin": "https://www.perplexity.ai",
             "Authorization": f"Bearer {TEST_SECRET}",
             "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
         },
         content=json.dumps(INIT_BODY),
     )
-    assert response.status_code == 403
-    assert response.text == "Invalid Origin header"
+    assert response.status_code != 421
+    assert response.status_code != 403
+    assert response.status_code in {200, 202, 406}
 
 
 def test_rest_health_unchanged_without_mcp_host_requirements(monkeypatch: pytest.MonkeyPatch) -> None:

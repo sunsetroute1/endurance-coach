@@ -18,6 +18,7 @@ from endurance_coach.domain.models import (
     RawPayload,
 )
 from endurance_coach.garmin.body_battery_parsing import extract_body_battery_day_stats
+from endurance_coach.garmin.activity_parsing import parse_running_dynamics, _merged_summary
 from endurance_coach.processor.parsing import (
     as_float,
     as_int,
@@ -91,15 +92,13 @@ class GarminActivityNormalizer:
     ) -> NormalizedRunningDynamics | None:
         detail = payload.payload.get("detail", {})
         if not isinstance(detail, dict):
-            return None
-
-        dto = detail.get("summaryDTO", detail)
-        cadence = as_float(dto.get("averageRunCadence") or dto.get("avgCadence"))
-        vertical_osc = as_float(
-            dto.get("avgVerticalOscillation") or dto.get("averageVerticalOscillation")
-        )
-        gct = as_float(dto.get("avgGroundContactTime") or dto.get("averageGroundContactTime"))
-        stride = as_float(dto.get("avgStrideLength") or dto.get("averageStrideLength"))
+            detail = {}
+        merged = _merged_summary(payload.payload)
+        parsed = parse_running_dynamics(merged, detail)
+        cadence = parsed.get("avg_cadence_spm")
+        vertical_osc = parsed.get("avg_vertical_oscillation_cm")
+        gct = parsed.get("avg_ground_contact_time_ms")
+        stride = parsed.get("avg_stride_length_m")
 
         if all(v is None for v in (cadence, vertical_osc, gct, stride)):
             return None
@@ -111,10 +110,10 @@ class GarminActivityNormalizer:
             user_id=payload.user_id,
             provider=payload.provider,
             activity_id=activity_id,
-            avg_cadence=cadence,
-            avg_vertical_oscillation_mm=vertical_osc,
-            avg_ground_contact_time_ms=gct,
-            avg_stride_length_m=stride,
+            avg_cadence=float(cadence) if cadence is not None else None,
+            avg_vertical_oscillation_mm=float(vertical_osc) if vertical_osc is not None else None,
+            avg_ground_contact_time_ms=float(gct) if gct is not None else None,
+            avg_stride_length_m=float(stride) if stride is not None else None,
             source_payload_id=payload.id,
         )
 

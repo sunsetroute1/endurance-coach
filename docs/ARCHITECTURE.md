@@ -207,7 +207,7 @@ Our MCP server (`endurance-coach-mcp`) exposes **coaching-oriented** tools. It d
 
 | Tool | Returns | Data source |
 |------|---------|-------------|
-| `get_recent_activities(days)` | Normalized activity summaries | `activities` |
+| `get_recent_activities(days, start, limit, activitytype, summary_only)` | Paginated activity rows (`summary` or `full` mode) | `activities` |
 | `get_sleep_summary(date)` | Sleep score, stages, debt | `sleep_records` + analytics |
 | `get_hrv_trend(days)` | HRV baseline deviation | `hrv_records` + analytics |
 | `get_training_readiness(date)` | Readiness score + components | `training_readiness_records` |

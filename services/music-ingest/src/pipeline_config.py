@@ -51,7 +51,7 @@ class PipelineConfig:
     def from_env(cls) -> PipelineConfig:
         return cls(
             incoming_dir=Path(_expand(os.environ.get("INCOMING_DIR", r"E:\Music\Incoming\Soulseek"))),
-            library_dir=Path(_expand(os.environ.get("LIBRARY_DIR", r"E:\Music\Library"))),
+            library_dir=Path(_expand(os.environ.get("LIBRARY_DIR", r"E:\Music"))),
             quarantine_dir=Path(_expand(os.environ.get("QUARANTINE_DIR", r"E:\Music\Quarantine"))),
             state_dir=Path(_expand(os.environ.get("STATE_DIR", r"E:\Music\State"))),
             beets_config=Path(_expand(os.environ.get("BEETS_CONFIG", r"%APPDATA%\beets\config.yaml"))),
@@ -63,7 +63,20 @@ class PipelineConfig:
         )
 
 
-AUDIO_EXTENSIONS = {".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".wma", ".ape", ".alac"}
+AUDIO_EXTENSIONS = {
+    ".flac",
+    ".mp3",
+    ".m4a",
+    ".m4b",
+    ".mp4",
+    ".aac",
+    ".ogg",
+    ".opus",
+    ".wav",
+    ".wma",
+    ".ape",
+    ".alac",
+}
 IGNORED_DIR_NAMES = {"incomplete", "downloading", "complete", "state", "library", "quarantine"}
 TEMP_SUFFIXES = (".part", ".tmp", ".download", ".crdownload", ".partial")
 IGNORED_FILE_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}

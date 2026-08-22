@@ -26,6 +26,21 @@ class Settings(BaseSettings):
     mcp_transport: str = "stdio"
     mcp_host: str = "127.0.0.1"
     mcp_port: int = 8080
+    # Streamable-HTTP session mode.
+    # True (default): each HTTP request is a self-contained MCP session.
+    # Required for Perplexity — it discovers tools then invokes without reliably
+    # creating/binding a sticky mcp-session-id invocation session.
+    # False: stateful sessions (client must echo mcp-session-id after initialize).
+    mcp_stateless_http: bool = True
+    # Prefer JSON responses over SSE. Connectors that Accept only
+    # application/json get HTTP 406 when this is False (tools listed, calls fail).
+    mcp_json_response: bool = True
+    # When False, do not advertise /.well-known/oauth-protected-resource (static
+    # Bearer only — there is no real OAuth authorization server).
+    mcp_advertise_oauth_resource: bool = False
+    # Stateful session idle reap (seconds). Only applies when mcp_stateless_http=False.
+    # None = never reap idle sessions.
+    mcp_session_idle_timeout_seconds: int | None = None
 
     api_secret_key: str | None = None
 
@@ -42,9 +57,17 @@ class Settings(BaseSettings):
     )
     strava_sync_days: int = 30
 
+    samsung_health_import_dir: Path = Field(
+        default=Path.home() / ".endurance-coach" / "samsung_health_import"
+    )
+    samsung_health_sync_days: int = 365
+
     public_base_url: str = "http://127.0.0.1:8000"
     default_user_email: str = "athlete@localhost"
     app_timezone: str = "America/Denver"
+    # Comma-separated extra Origins allowed by MCP DNS-rebinding protection
+    # (in addition to the public host and built-in connector Origins).
+    mcp_allowed_origins: str = ""
 
     @field_validator("public_base_url", mode="before")
     @classmethod

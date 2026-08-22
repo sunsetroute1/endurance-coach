@@ -1,2 +1,4 @@
 beets>=2.0.0
 watchdog>=6.0.0
+pylast>=5.0.0
+Pillow>=10.0.0

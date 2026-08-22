@@ -1,4 +1,61 @@
-# Shared helpers for hidden/minimized scheduled-task and child PowerShell launches.
+# Shared helpers for hidden scheduled-task and child process launches.
+
+function Get-HiddenLauncherDirectory {
+    'C:\ProgramData\silent-launchers'
+}
+
+function New-HiddenLauncherVbs {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+        [string[]]$TargetArgs = @(),
+        [ValidateSet('powershell', 'cmd', 'exe')]
+        [string]$TargetType = 'powershell',
+        [string]$WorkingDirectory = ''
+    )
+
+    $launcherDir = Get-HiddenLauncherDirectory
+    New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
+
+    $keySource = "$TargetType|$TargetPath|$WorkingDirectory|$($TargetArgs -join '|')"
+    $hash = [Math]::Abs($keySource.GetHashCode())
+    $vbsPath = Join-Path $launcherDir ("launcher_{0}.vbs" -f $hash)
+
+    $escapedTarget = $TargetPath -replace '"', '""'
+    $escapedWorkDir = $WorkingDirectory -replace '"', '""'
+
+    switch ($TargetType) {
+        'powershell' {
+            $command = "-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File ""$escapedTarget"""
+            if ($TargetArgs.Count -gt 0) {
+                $command += ' ' + ($TargetArgs -join ' ')
+            }
+            $runTarget = "powershell.exe $command"
+        }
+        'cmd' {
+            $runTarget = "cmd.exe /c ""$escapedTarget"""
+        }
+        default {
+            $argSuffix = if ($TargetArgs.Count -gt 0) { ' ' + ($TargetArgs -join ' ') } else { '' }
+            $runTarget = """$escapedTarget""$argSuffix"
+        }
+    }
+
+    if ($WorkingDirectory) {
+        $vbs = @"
+Set shell = CreateObject("Wscript.Shell")
+shell.CurrentDirectory = "$escapedWorkDir"
+shell.Run "$($runTarget -replace '"', '""')", 0, False
+"@
+    } else {
+        $vbs = @"
+CreateObject("Wscript.Shell").Run "$($runTarget -replace '"', '""')", 0, False
+"@
+    }
+
+    Set-Content -Path $vbsPath -Value $vbs -Encoding ASCII
+    return $vbsPath
+}
 
 function Get-SilentPowerShellArgumentString {
     param(
@@ -22,9 +79,8 @@ function New-SilentPowerShellTaskAction {
         [string[]]$ScriptArgs = @()
     )
 
-    return New-ScheduledTaskAction `
-        -Execute "powershell.exe" `
-        -Argument (Get-SilentPowerShellArgumentString -ScriptPath $ScriptPath -ScriptArgs $ScriptArgs)
+    $vbs = New-HiddenLauncherVbs -TargetPath $ScriptPath -TargetArgs $ScriptArgs -TargetType 'powershell'
+    return New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B `"$vbs`""
 }
 
 function New-SilentScheduledTaskSettings {
@@ -66,18 +122,11 @@ function Invoke-SilentPowerShell {
         [switch]$Wait
     )
 
-    $argumentList = @(
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-NonInteractive",
-        "-WindowStyle", "Hidden",
-        "-File", $ScriptPath
-    ) + $ScriptArgs
-
+    $vbs = New-HiddenLauncherVbs -TargetPath $ScriptPath -TargetArgs $ScriptArgs -TargetType 'powershell'
     $params = @{
-        FilePath = "powershell.exe"
-        ArgumentList = $argumentList
-        WindowStyle = "Hidden"
+        FilePath = 'wscript.exe'
+        ArgumentList = @('//B', $vbs)
+        WindowStyle = 'Hidden'
         PassThru = $true
     }
     if ($Wait) {
@@ -89,6 +138,20 @@ function Invoke-SilentPowerShell {
         $global:LASTEXITCODE = $proc.ExitCode
         return $proc.ExitCode
     }
+}
+
+function Start-HiddenProcess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory = '',
+        [ValidateSet('powershell', 'cmd', 'exe')]
+        [string]$TargetType = 'exe'
+    )
+
+    $vbs = New-HiddenLauncherVbs -TargetPath $FilePath -TargetArgs $ArgumentList -TargetType $TargetType -WorkingDirectory $WorkingDirectory
+    Start-Process -FilePath 'wscript.exe' -ArgumentList @('//B', $vbs) -WindowStyle Hidden | Out-Null
 }
 
 function Set-ScheduledTaskHidden {

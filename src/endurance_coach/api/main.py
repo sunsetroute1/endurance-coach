@@ -17,6 +17,7 @@ from endurance_coach.api.routes.coach import router as coach_router
 from endurance_coach.api.routes.garmin import router as garmin_router
 from endurance_coach.api.routes.process import router as process_router
 from endurance_coach.api.routes.strava import router as strava_router
+from endurance_coach.api.routes.samsung import router as samsung_router
 from endurance_coach.api.routes.sync import router as sync_router
 from endurance_coach.di.container import create_container
 
@@ -39,6 +40,7 @@ app.add_middleware(ApiKeyMiddleware)
 
 app.include_router(sync_router)
 app.include_router(strava_router)
+app.include_router(samsung_router)
 app.include_router(garmin_router)
 app.include_router(activities_router)
 app.include_router(process_router)

@@ -15,7 +15,7 @@ function L($m) { "$(Get-Date -Format s) $m" | Tee-Object -FilePath $log -Append 
 
 try {
     if (-not (Test-Path $LocalJson)) {
-        throw "Missing $LocalJson — run installer with -WithCaddy first"
+        throw "Missing $LocalJson - run installer with -WithCaddy first"
     }
     $config = Get-Content $LocalJson -Raw | ConvertFrom-Json
     if (-not $config.duckdns_token -or -not $config.duckdns_domain) {
@@ -58,9 +58,15 @@ try {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     }
 
-    $action = New-ScheduledTaskAction `
-        -Execute "powershell.exe" `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File `"$updateScript`""
+    $helpers = Join-Path $InstallRoot "scripts\scheduled_task_helpers.ps1"
+    if (Test-Path $helpers) {
+        . $helpers
+        $action = New-SilentPowerShellTaskAction -ScriptPath $updateScript
+    } else {
+        $action = New-ScheduledTaskAction `
+            -Execute "powershell.exe" `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File `"$updateScript`""
+    }
     $tAtStart = New-ScheduledTaskTrigger -AtStartup
     $tRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest

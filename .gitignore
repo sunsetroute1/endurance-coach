@@ -27,10 +27,16 @@ htmlcov/
 
 # Docker
 docker-data/
+resource-limits.env
 
 # Runtime
 logs/
 installer/local.json
+coach-active.marker
+data/
+android/
+config/
+energy-report.html
 
 # Optional local venvs
 services/music-ingest/.venv/

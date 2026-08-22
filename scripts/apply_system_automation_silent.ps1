@@ -22,7 +22,14 @@ if ($isAdmin) {
             continue
         }
         Write-Host "Running $script..."
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -InstallRoot $ProjectRoot
+        try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -InstallRoot $ProjectRoot
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "$script exited with code $LASTEXITCODE (non-fatal for core services)"
+            }
+        } catch {
+            Write-Warning "$script failed: $($_.Exception.Message) (non-fatal for core services)"
+        }
     }
 } else {
     Write-Host ""
@@ -40,7 +47,13 @@ $taskNames = @(
     "EnduranceCoachMCP",
     "EnduranceCoachGarminSync",
     "EnduranceCoachWatchdog",
+    "MusicIngestWatcher",
+    "MusicIngestFallbackScan",
     "Slskd",
+    "VPN Network Watchdog",
+    "Media Stack Boot",
+    "Media Server Post-Boot Recovery",
+    "AutomationWatchboard",
     "Caddy Server",
     "DuckDNS Updater"
 )
@@ -55,3 +68,8 @@ foreach ($name in $taskNames) {
     $silent = ($args -match 'WindowStyle Hidden') -or ($task.Actions.Execute -eq 'wscript.exe')
     Write-Host ("  {0,-28} Hidden={1} SilentLauncher={2}" -f $name, $hidden, $silent)
 }
+
+Write-Host ""
+Write-Host "Running service repair + Garmin sync catch-up..."
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "fix_endurance_services.ps1")
+exit $LASTEXITCODE

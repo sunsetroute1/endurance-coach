@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Continue"
 
 . (Join-Path $PSScriptRoot "scheduled_task_helpers.ps1")
+. (Join-Path $PSScriptRoot "network_vpn_helpers.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $LogDir = Join-Path $ProjectRoot "logs"
@@ -73,20 +74,39 @@ function Get-PublicHealthUrl {
 
 Write-Log "Watchdog check started"
 
-if (-not (Test-PortOpen 5432)) {
-    Write-Log "PostgreSQL not ready; waiting up to 60s"
-    if (-not (Wait-ForPort 5432 60)) {
-        Write-Log "ERROR: PostgreSQL still unavailable; skipping app restarts"
+$coachHelpers = Join-Path $PSScriptRoot "coach-stack-helpers.ps1"
+$coachDocker = $false
+if (Test-Path $coachHelpers) {
+    . $coachHelpers
+    $coachDocker = Test-CoachDockerMode
+}
+
+$vpnResult = Invoke-VpnNetworkWatchdog
+if ($vpnResult.changed) {
+    Write-Log "VPN/network transition handled (signature=$($vpnResult.current.signature))"
+}
+
+if ($coachDocker) {
+    if (-not (Invoke-CoachDockerRecovery -Reason 'watchdog' -StartupWaitSec 30)) {
+        Write-Log "ERROR: Coach Docker recovery failed"
         exit 1
     }
-}
+} else {
+    if (-not (Test-PortOpen 5432)) {
+        Write-Log "PostgreSQL not ready; waiting up to 60s"
+        if (-not (Wait-ForPort 5432 60)) {
+            Write-Log "ERROR: PostgreSQL still unavailable; skipping app restarts"
+            exit 1
+        }
+    }
 
-if (-not (Test-PortOpen 8000)) {
-    Invoke-StartScript "API" (Join-Path $PSScriptRoot "start_api_windows.ps1")
-}
+    if (-not (Test-PortOpen 8000)) {
+        Invoke-StartScript "API" (Join-Path $PSScriptRoot "start_api_windows.ps1")
+    }
 
-if (-not (Test-PortOpen 8080)) {
-    Invoke-StartScript "MCP" (Join-Path $PSScriptRoot "start_mcp_windows.ps1")
+    if (-not (Test-PortOpen 8080)) {
+        Invoke-StartScript "MCP" (Join-Path $PSScriptRoot "start_mcp_windows.ps1")
+    }
 }
 
 $apiUp = Test-PortOpen 8000
@@ -95,6 +115,28 @@ Write-Log "Status api=$apiUp mcp=$mcpUp"
 
 if (-not $apiUp -or -not $mcpUp) {
     exit 2
+}
+
+# If API was just restarted, catch up a missed Garmin sync (e.g. PC asleep at 9 AM).
+$SyncLog = Join-Path $LogDir "sync-pipeline.log"
+if (Test-Path $SyncLog) {
+    $lastComplete = Select-String -Path $SyncLog -Pattern "Pipeline complete\." | Select-Object -Last 1
+    $staleSync = $true
+    if ($lastComplete -and $lastComplete.Line -match "^(\S+)") {
+        try {
+            $lastTime = [datetimeoffset]::Parse($Matches[1]).LocalDateTime
+            $staleSync = ((Get-Date) - $lastTime).TotalHours -gt 6
+        } catch {
+            $staleSync = $true
+        }
+    }
+    if ($staleSync) {
+        Write-Log "Last successful Garmin sync is stale; running catch-up pipeline"
+        $syncScript = Join-Path $PSScriptRoot "sync_garmin_pipeline.ps1"
+        if (Test-Path $syncScript) {
+            Invoke-SilentPowerShell -ScriptPath $syncScript -Wait | Out-Null
+        }
+    }
 }
 
 # Best-effort Caddy reload when the public site is unreachable locally.
@@ -108,6 +150,20 @@ try {
 } catch {
     Write-Log "Public health check failed ($($_.Exception.Message)); reloading Caddy"
     Invoke-SilentPowerShell -ScriptPath (Join-Path $PSScriptRoot "reload_caddy.ps1") -Wait
+}
+
+$musicFixScript = Join-Path $PSScriptRoot "music-ingest\fix_music_ingest.ps1"
+if ((Test-Path $musicFixScript) -and -not (Test-Path (Join-Path $LogDir "music-ingest.pid"))) {
+    Write-Log "Music ingest watcher pid missing; running repair"
+    Invoke-SilentPowerShell -ScriptPath $musicFixScript -Wait | Out-Null
+} elseif (Test-Path $musicFixScript) {
+    $musicPidFile = Join-Path $LogDir "music-ingest.pid"
+    $musicPid = Get-Content $musicPidFile -ErrorAction SilentlyContinue
+    $musicRunning = $musicPid -and (Get-Process -Id $musicPid -ErrorAction SilentlyContinue)
+    if (-not $musicRunning) {
+        Write-Log "Music ingest watcher not running; running repair"
+        Invoke-SilentPowerShell -ScriptPath $musicFixScript -Wait | Out-Null
+    }
 }
 
 exit 0

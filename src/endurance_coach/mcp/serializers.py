@@ -17,9 +17,12 @@ from endurance_coach.db.models import (
     TrainingReadinessRecord,
 )
 from endurance_coach.domain.models import CoachResponse
+from endurance_coach.garmin.activity_parsing import build_activity_coaching_metrics
 
 __all__ = [
     "activity_to_dict",
+    "activity_to_summary_dict",
+    "attach_coaching_metrics",
     "coach_response_to_dict",
     "format_date",
     "format_duration",
@@ -33,10 +36,46 @@ __all__ = [
 ]
 
 
-def activity_to_dict(activity: ActivityRecord) -> dict[str, object]:
-    return {
+def attach_coaching_metrics(
+    row: dict[str, object],
+    payload: dict[str, object] | None,
+) -> dict[str, object]:
+    if payload is None:
+        return row
+    return {**row, "coaching_metrics": build_activity_coaching_metrics(payload)}
+
+
+def activity_to_summary_dict(
+    activity: ActivityRecord,
+    *,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Compact activity row for multi-month MCP sweeps (no lap/time-series data)."""
+    row: dict[str, object] = {
+        "id": str(activity.id),
+        "provider_activity_id": activity.provider_record_id,
+        "name": activity.name,
+        "started_at": activity.started_at.isoformat(),
+        "date": activity.started_at.date().isoformat(),
+        "type": activity.activity_type,
+        "duration_s": activity.duration_seconds,
+        "distance_m": activity.distance_meters,
+        "avg_hr": activity.avg_heart_rate,
+        "vert_m": activity.elevation_gain_meters,
+        "load": activity.training_load,
+    }
+    return attach_coaching_metrics(row, payload)
+
+
+def activity_to_dict(
+    activity: ActivityRecord,
+    *,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    row: dict[str, object] = {
         "id": str(activity.id),
         "provider": activity.provider,
+        "provider_activity_id": activity.provider_record_id,
         "name": activity.name,
         "activity_type": activity.activity_type,
         "started_at": activity.started_at.isoformat(),
@@ -48,6 +87,7 @@ def activity_to_dict(activity: ActivityRecord) -> dict[str, object]:
         "elevation_gain_meters": activity.elevation_gain_meters,
         "training_load": activity.training_load,
     }
+    return attach_coaching_metrics(row, payload)
 
 
 def sleep_to_dict(record: SleepRecord) -> dict[str, object]:

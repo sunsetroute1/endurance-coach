@@ -13,15 +13,18 @@ if ($existing) {
 }
 
 $action = New-SilentPowerShellTaskAction -ScriptPath $StartScript
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$trigger.Delay = "PT90S"
+$triggers = @(
+    (New-ScheduledTaskTrigger -AtStartup),
+    (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME)
+)
+$triggers[0].Delay = "PT90S"
 $settings = New-SilentScheduledTaskSettings -RestartCount 999 -RestartInterval ([TimeSpan]::FromMinutes(1)) -MultipleInstances "IgnoreNew"
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
-    -Trigger $trigger `
+    -Trigger $triggers `
     -Settings $settings `
     -Principal $principal `
     -Description "Watch Soulseek incoming folder and import with beets" | Out-Null
