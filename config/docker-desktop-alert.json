@@ -1,0 +1,41 @@
+{
+  "active": true,
+  "latest_version": "4.89.0",
+  "pinned_version": "4.86.0",
+  "installed_version": null,
+  "summary": "Docker Desktop 4.89.0 (2026-08-31) is still the newest on docs.docker.com as of 2026-09-04 and is newer than the Version default 4.86.0 in scripts/update_docker_desktop.ps1. The pin was not bumped. 4.89.0 is stack-relevant for this Windows always-on host (Compose v5.5.0, Resource Saver polling waking the engine, start failure after an ungraceful shutdown left a stuck socket). Remaining 4.88.1–4.83.0 notes still apply (idle-shutdown HTTP 500, power-loss daemon.json recovery, localhost/[::1] ports, VMM throughput, WSL Store wsl --update loop, unless-stopped/stop timeouts, VirtioFS, bind-mount inotify panic, CVE-2026-17106).",
+  "relevant_notes": [
+    "4.89.0 ships Docker Compose v5.5.0 — relevant to media/*arr Compose and endurance-coach postgres/api/mcp.",
+    "4.89.0: Background container and image polling no longer wakes the Docker engine when Resource Saver is active — relevant to this always-on host if Resource Saver / idle-shutdown is enabled.",
+    "4.89.0 Windows: Docker Desktop could fail to start after an ungraceful shutdown left a stuck socket file — relevant after power loss on this host (configure_power_outage_hardening.ps1 / Fast Startup).",
+    "4.89.0 Windows: Docker VMM now explains how to fix an unavailable Windows Hypervisor platform — relevant if Docker VMM is in use.",
+    "4.89.0: Disk usage slider in Settings no longer shows duplicate ticks at small ranges (values in GiB to one decimal, up to 8 TiB). Dashboard-only.",
+    "4.89.0: Fixed a dashboard crash (desktop-feedback#611). Dashboard-only; not a Compose/WSL/restart change.",
+    "4.88.1: Opening the Dashboard no longer incorrectly redirects unauthenticated users to the sign-in prompt. Dashboard-only; not a Compose/WSL/restart change.",
+    "4.88.0: Fixed an HTTP 500 during Docker Desktop startup or wake from idle-shutdown when the engine socket existed but was not yet listening — relevant to this always-on host after Resource Saver / idle wake.",
+    "4.88.0: If ~/.docker/daemon.json is corrupted with null bytes (crash or power-loss during a settings save), Docker Desktop now recovers to default daemon settings instead of failing to start.",
+    "4.88.0: docker ps port bindings now match active listeners for 'Localhost by default' / 'Localhost only', and a [::1] loopback listener is added beside 127.0.0.1 — relevant to published *arr and endurance-coach ports (5432/8000/8080).",
+    "4.88.0: Fixed a Docker VMM regression that cut container inbound network throughput to about 0.3 GB/s — relevant to media/*arr transfers on Windows if Docker VMM is in use.",
+    "4.87.0 ships Docker Compose v5.4.0 (volume/network reconcile in the plan) — relevant to media/*arr Compose and endurance-coach postgres/api/mcp.",
+    "4.87.0: Fixed a misleading proxy error that named the destination server instead of the unreachable upstream proxy, and included machine-wide proxy configuration in diagnostics.",
+    "4.87.0 Windows: WSL error recovery now surfaces specific messages (e.g. HCS/0x80070569) instead of a generic fallback.",
+    "4.87.0 Windows: Docker Desktop no longer repeatedly asks to run wsl --update when WSL is installed via the Microsoft Store rather than the inbox optional component. This host's configure_docker_wsl_limits.ps1 also runs wsl --update.",
+    "4.87.0 Windows: Resource Saver settings were incorrectly shown when using Windows containers; disk-image/VMM limit slider and Hyper-V virtual-disk cap fixes also shipped.",
+    "4.86.0: Fixed container stop timeouts and unless-stopped restart policies not being honored during engine shutdown — always-on *arr Compose and endurance-coach postgres/api/mcp (compose x-common uses restart: unless-stopped).",
+    "4.86.0: AF_UNIX sockets shared over VirtioFS now work host↔guest; enabling Docker Offload failed when the proxy was set by the OS instead of environment variables.",
+    "4.86.0 ships Docker Engine v29.7.2 and addresses CVE-2026-17106 (CopyEscape): docker cp copy-out destination escape from a malicious container onto the host.",
+    "4.85.0: Linux VM kernel panic when a container inotify/fanotify watcher saw host-side bind-mount changes — still relevant to *arr/media library bind mounts and endurance-coach host-mounted config dirs.",
+    "4.83.0 Windows: WSL 2.6.x+ 0-byte proxy binary (Permission denied / Exec format error); Resource Saver stopped the VM and broke Docker CLI in integrated WSL distros."
+  ],
+  "recommended_actions": [
+    "Leave compose files, recovery scripts, and the Docker Desktop pin unchanged until you review this in Cursor after Watchboard turns yellow.",
+    "On the Windows host, check Docker Desktop → About and compare the installed version to 4.89.0.",
+    "Do not bump the Version default in scripts/update_docker_desktop.ps1 (currently 4.86.0); this automation only records the gap.",
+    "If installed is older than 4.89.0, schedule a maintenance window: quit Docker Desktop, install 4.89.0 from the official notes, then confirm *arr and endurance-coach containers return with unless-stopped restart policies intact.",
+    "After upgrade, verify Resource Saver no longer wakes the engine from background polling, start after an ungraceful/power-loss shutdown (no stuck socket), Compose v5.5.0 on *arr stacks, idle-shutdown/wake (no HTTP 500), power-loss daemon.json recovery, localhost/[::1] published ports, VMM inbound throughput and Hypervisor-platform guidance if Docker VMM is enabled, WSL integration (Store vs inbox, no spurious wsl --update loop), VirtioFS/file shares, and system proxy diagnostics.",
+    "CVE-2026-17106 remains a reason to be on at least 4.86.0 if docker cp is used against untrusted containers; no stack config change is required for the fix."
+  ],
+  "release_notes_url": "https://docs.docker.com/desktop/release-notes/",
+  "updated_at": "2026-09-04T04:04:38Z",
+  "source": "cursor-automation"
+}
