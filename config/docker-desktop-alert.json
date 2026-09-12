@@ -1,0 +1,34 @@
+{
+  "active": true,
+  "latest_version": "4.90.0",
+  "pinned_version": "4.86.0",
+  "installed_version": null,
+  "summary": "Docker Desktop 4.90.0 (2026-09-07) remains the newest release and is still newer than pin 4.86.0. Windows always-on stack should review before any upgrade: WinGet can hang on conflicting install-settings.json (same path as update_docker_desktop.ps1), ungraceful-shutdown stuck sockets, WSL third-party plugin failures, bind-mount ownership/disk-leak/VirtioFS fixes, Compose 5.5.0, and low-priority Kind CVEs.",
+  "relevant_notes": [
+    "4.90.0 Windows: startup hang on 'Starting' after a WinGet upgrade when install-settings.json has conflicting engine settings. Directly relevant to scripts/update_docker_desktop.ps1 (winget upgrade --id Docker.DockerDesktop).",
+    "4.90.0 / 4.89.0 Windows: Docker Desktop could fail to start after an ungraceful shutdown left a stuck socket. Relevant to power-loss recovery (configure_power_outage_hardening.ps1, post_boot_stack_recovery.ps1, restart_docker_desktop.ps1).",
+    "4.90.0 Windows: a failing third-party WSL plugin (example: Microsoft Defender for Endpoint WSL plugin) was reported as a missing Docker Desktop disk instead of naming the plugin that blocked WSL.",
+    "4.90.0 all platforms: bind-mount root intermittently reported ownership 0:0, causing git 'detected dubious ownership'. Applies to endurance-coach host mounts (~/.garminconnect, ~/.endurance-coach) and media/*arr bind mounts.",
+    "4.90.0 all platforms: repeatedly replacing files on a shared folder leaked VM disk space until Desktop restart. media/*arr Compose write-heavy mounts are in scope.",
+    "4.90.0 all platforms: VirtioFS renameat2(RENAME_EXCHANGE) overwrote the target instead of swapping; mmap() of a Synchronized File Share file failed with 'No such device' (git/pnpm).",
+    "4.90.0 all platforms: changing auto-pause timeout while already idle did not apply until the original timer expired; Images view crashed after Resource Saver wake; engine start failures now show a specific reason.",
+    "4.90.0 security: Kind cloud provider image v0.7.0 addresses CVE-2026-46595 and CVE-2026-39834. Low priority unless this host uses Kind / Docker Offload Kubernetes.",
+    "4.89.0 updates Docker Compose to v5.5.0 (4.87.0 had v5.4.0). Resource Saver background container/image polling no longer wakes the engine — relevant to always-on idle behavior.",
+    "4.88.1 Dashboard-only: opening the Dashboard redirected unauthenticated users to sign-in. Not a compose/runtime change.",
+    "4.88.0: HTTP 500 on startup or wake from idle-shutdown when the engine socket existed but was not yet listening; corrupted ~/.docker/daemon.json (null bytes after crash/power-loss) now auto-recovers to defaults; docker ps port bindings now include [::1] with localhost-only settings; Docker VMM inbound throughput regression (~0.3 GB/s) fixed.",
+    "4.87.0 Windows: Store-installed WSL repeatedly prompted for wsl --update (also used by configure_docker_wsl_limits.ps1); misleading proxy errors named the destination instead of the unreachable upstream; Resource Saver / disk-limit UI fixes for Hyper-V and Docker VMM; Linux kernel v7.0.12.",
+    "Pin 4.86.0 already includes unless-stopped / container-stop honoring on engine shutdown, VirtioFS AF_UNIX bidirectional sockets, OS-configured proxy Offload fix, and CVE-2026-17106 (docker container cp destination escape)."
+  ],
+  "recommended_actions": [
+    "Do not bump the Version default in scripts/update_docker_desktop.ps1 from this alert. Leave the pin at 4.86.0 until a human reviews 4.90.0 on this Windows host.",
+    "Do not change compose files, recovery scripts, or other stack config from this alert.",
+    "Before any upgrade, snapshot or inspect %APPDATA%\\Docker\\install-settings.json (and the all-users copy if present) so a WinGet 4.90.0 hang on conflicting engine settings can be diagnosed.",
+    "If upgrading later, run scripts/update_docker_desktop.ps1 only after a planned window; expect Docker restart plus heal_full_stack.ps1. Watch for 'Starting' hang after winget and for stuck-socket startup after power loss.",
+    "After any upgrade, confirm media/*arr and endurance-coach postgres/api/mcp (restart: unless-stopped) come back, published ports 5432/8000/8080 still bind, and host bind-mount ownership on ~/.garminconnect and ~/.endurance-coach is not 0:0.",
+    "If WSL fails to start, look for a named third-party WSL plugin (Defender) rather than a missing Docker disk. Kind CVEs can be ignored unless Kind/Offload Kubernetes is in use.",
+    "Use Automation Watchboard (yellow Update) as the cue to apply or skip 4.90.0 in Cursor."
+  ],
+  "release_notes_url": "https://docs.docker.com/desktop/release-notes/",
+  "updated_at": "2026-09-12T04:12:28Z",
+  "source": "cursor-automation"
+}
