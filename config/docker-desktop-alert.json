@@ -1,0 +1,38 @@
+{
+  "active": true,
+  "latest_version": "4.91.0",
+  "pinned_version": "4.86.0",
+  "installed_version": null,
+  "summary": "As of 2026-09-19, Docker Desktop 4.91.0 (2026-09-14) is still the newest GA release and is newer than pin 4.86.0. Windows always-on stack should review before any upgrade: abrupt-shutdown corrupt network DB that previously required a factory reset, Compose rebuilds of locally-built images on Resource Saver wake (endurance-coach build: .), idle-timeout 0 unexpectedly shutting down the VM, WSL disk-image access leaving Desktop on Starting..., plus remaining 4.90.0 WinGet install-settings.json hang and bind-mount/VirtioFS fixes.",
+  "relevant_notes": [
+    "4.91.0 all platforms: a corrupt Docker network database, usually from an abrupt shutdown, prevented Docker Engine from starting and left a factory reset as the only recovery option. Directly relevant to this always-on host (configure_power_outage_hardening.ps1, post_boot_stack_recovery.ps1, restart_docker_desktop.ps1).",
+    "4.91.0 all platforms: Docker Compose rebuilt locally-built images on every Resource Saver wake (docker/desktop-feedback#507). endurance-coach compose uses build: . / image: endurance-coach:latest for api and mcp.",
+    "4.91.0 all platforms: the VM could shut down unexpectedly when idle timeout was set to 0. Always-on power hardening disables sleep; confirm Desktop idle/auto-pause is not 0-timeouting the engine.",
+    "4.91.0 all platforms: Docker Desktop sometimes took five extra minutes to report the engine as stopped when the VM stopped unexpectedly. Affects restart/unless-stopped recovery timing.",
+    "4.91.0 Windows: Docker Desktop stayed on Starting... indefinitely when WSL could not access the disk image location; it now reports the access failure with guidance instead of a generic WSL error.",
+    "4.91.0 updates: Docker Engine v29.8.0, containerd v2.3.4, Docker Compose v5.5.1 (4.89.0 shipped v5.5.0). No CVE section in 4.91.0 notes.",
+    "4.91.0 all platforms: changing the disk image location to a different volume could delete the existing disk image if the copy was interrupted before it started. Avoid mid-copy location changes on this host.",
+    "4.90.0 Windows: startup hang on 'Starting' after a WinGet upgrade when install-settings.json has conflicting engine settings. Directly relevant to scripts/update_docker_desktop.ps1 (winget upgrade --id Docker.DockerDesktop).",
+    "4.90.0 / 4.89.0 Windows: Docker Desktop could fail to start after an ungraceful shutdown left a stuck socket. Relevant to power-loss recovery.",
+    "4.90.0 Windows: a failing third-party WSL plugin (example: Microsoft Defender for Endpoint WSL plugin) was reported as a missing Docker Desktop disk instead of naming the plugin that blocked WSL.",
+    "4.90.0 all platforms: bind-mount root intermittently reported ownership 0:0 (git 'detected dubious ownership'); repeatedly replacing files on a shared folder leaked VM disk space; VirtioFS renameat2(RENAME_EXCHANGE) overwrote the target; mmap() of a Synchronized File Share file failed. Applies to endurance-coach host mounts (~/.garminconnect, ~/.endurance-coach) and media/*arr bind mounts.",
+    "4.90.0 all platforms: changing auto-pause timeout while already idle did not apply until the original timer expired; Images view crashed after Resource Saver wake.",
+    "4.90.0 security: Kind cloud provider image v0.7.0 addresses CVE-2026-46595 and CVE-2026-39834. Low priority unless this host uses Kind / Docker Offload Kubernetes.",
+    "4.89.0 Resource Saver background container/image polling no longer wakes the engine. 4.88.0: HTTP 500 on startup/wake when the engine socket existed but was not yet listening; corrupted ~/.docker/daemon.json (null bytes after crash/power-loss) auto-recovers to defaults; docker ps port bindings include [::1]; Docker VMM inbound throughput regression (~0.3 GB/s) fixed.",
+    "4.87.0 Windows: Store-installed WSL repeatedly prompted for wsl --update (also used by configure_docker_wsl_limits.ps1); misleading proxy errors named the destination instead of the unreachable upstream; Resource Saver / disk-limit UI fixes for Hyper-V and Docker VMM.",
+    "Pin 4.86.0 already includes unless-stopped / container-stop honoring on engine shutdown, VirtioFS AF_UNIX bidirectional sockets, OS-configured proxy Offload fix, and CVE-2026-17106 (docker container cp destination escape)."
+  ],
+  "recommended_actions": [
+    "Do not bump the Version default in scripts/update_docker_desktop.ps1 from this alert. Leave the pin at 4.86.0 until a human reviews 4.91.0 on this Windows host.",
+    "Do not change compose files, recovery scripts, or other stack config from this alert.",
+    "Treat 4.91.0 as the review target: abrupt-shutdown network-DB recovery (was factory-reset-only), Compose rebuilds of endurance-coach on Resource Saver wake, idle-timeout 0 VM shutdown, and WSL disk-image Starting hangs.",
+    "Before any upgrade, snapshot or inspect %APPDATA%\\Docker\\install-settings.json (and the all-users copy if present) so a WinGet hang on conflicting engine settings (still in 4.90.0) can be diagnosed.",
+    "If upgrading later, run scripts/update_docker_desktop.ps1 only after a planned window; expect Docker restart plus heal_full_stack.ps1. Watch for 'Starting' hang after winget, stuck-socket or corrupt-network-DB startup after power loss, and unexpected VM stop when idle timeout is 0.",
+    "After any upgrade, confirm media/*arr and endurance-coach postgres/api/mcp (restart: unless-stopped) come back without a compose rebuild loop, published ports 5432/8000/8080 still bind, and host bind-mount ownership on ~/.garminconnect and ~/.endurance-coach is not 0:0.",
+    "If WSL fails to start, check disk-image path access and named third-party WSL plugins (Defender) rather than a missing Docker disk. Kind CVEs can be ignored unless Kind/Offload Kubernetes is in use.",
+    "Use Automation Watchboard (yellow Update) as the cue to apply or skip 4.91.0 in Cursor."
+  ],
+  "release_notes_url": "https://docs.docker.com/desktop/release-notes/",
+  "updated_at": "2026-09-19T04:20:03Z",
+  "source": "cursor-automation"
+}
