@@ -1,44 +1,45 @@
 # Endurance Coach
 
-Self-hosted endurance coaching for Garmin. It syncs your Garmin data, computes training metrics, and exposes them through an MCP server so any assistant can coach from those numbers.
+A self-hosted coaching server for Garmin. It syncs your activities, sleep, and recovery, computes the training numbers on your machine, and exposes them through MCP so any assistant can coach from your own data instead of guessing.
 
-## Status
+## What it does
 
-Garmin sign-in uses `python scripts/garmin_auth.py` or the phone page linked from a sync alert. The password is used only for that sign-in and is not stored.
+- **Syncs Garmin on a schedule.** Activities, sleep, HRV, and readiness land in your database. The first sign-in of a local day looks back 30 days. Later runs that day look back 3 days.
+- **Computes the training numbers itself.** Chronic load (CTL), acute load (ATL), form (TSB), acute-to-chronic ratio, recovery, and injury risk are calculated here. The assistant is told those results. It is not asked to do the math.
+- **Decides the day from readiness.** A high injury risk, a very negative TSB, or a low recovery score becomes rest or easy movement. A fresh day with a positive TSB can be a quality session.
+- **Answers through MCP or plain HTTP.** Connect Claude, Cursor, ChatGPT, Perplexity, LM Studio, or any other MCP client. An assistant that cannot speak MCP can call the same coach over HTTP with the bearer token.
+- **Keeps the Garmin password off disk.** You type it on a page hosted by this server, or in `scripts/garmin_auth.py` on this computer. It is used for that sign-in only. It is not saved, and it is not included in the expiration alert.
 
-**LLM setup:** see [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) for connecting OpenAI, Anthropic, Ollama, LM Studio, and MCP clients.
+## What this repo does not include
 
-## Quick Start
+Strava is not part of this project. There is no nutrition planner and no medical diagnosis. The server does not store your Garmin password, and it does not send that password to the alert service.
 
-### Windows installer (recommended for self-hosting)
+The language model does not invent training numbers. If Garmin data is missing, the honest result is that it is missing.
+
+## Setup
+
+The fastest path on Windows is the installer. It asks for your database, timezone, public address, API secret, and how you want token-expiration alerts. The default alert is the free ntfy.sh service. Email and an HTTPS webhook are the other choices.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\Install-EnduranceCoach.ps1
 ```
 
-See [INSTALL.md](INSTALL.md) for prerequisites, optional Caddy/DuckDNS, and post-install Garmin setup.
+Then sign in to Garmin in a terminal on that computer:
 
-### Manual setup (uv + Docker)
-
-#### Prerequisites
-
-- Python 3.12
-- [uv](https://docs.astral.sh/uv/) or pip + `requirements.txt`
-- Docker & Docker Compose (for PostgreSQL)
-
-#### Garmin Authentication (2FA supported)
-
-Do not store the Garmin email or password in this project. **Accounts with 2FA are supported.** At the server, run the login script in a real terminal. When a saved token is rejected, the sync alert includes a phone link to the same sign-in page. The password is used for that sign-in only.
-
-```bash
-python scripts/garmin_auth.py
+```powershell
+.venv\Scripts\python.exe scripts\garmin_auth.py
 ```
 
-Tokens are saved to `~/.garminconnect` and referenced via `GARMIN_TOKEN_PATH` in `.env`. Sign in again when tokens expire, either with that script or from the phone link.
+The installer writes `config/mcp-client.json`. Paste that into any MCP client. Full steps, including Docker and a manual install, are in [INSTALL.md](INSTALL.md). Garmin sign-in, the phone page, and alerts are in [docs/GARMIN_AUTH.md](docs/GARMIN_AUTH.md). Connecting an assistant or a local model is in [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md).
 
-See [docs/GARMIN_AUTH.md](docs/GARMIN_AUTH.md) for the phone page, Docker mounts, and troubleshooting.
+### Prerequisites
 
-### Setup
+- Windows, for the installer and the scheduled sync
+- Python 3.12
+- Docker, or PostgreSQL 16
+- A Garmin account
+
+### Manual setup
 
 ```bash
 cp .env.example .env
@@ -48,59 +49,41 @@ uv run alembic upgrade head
 uv run endurance-coach-api
 ```
 
-### Trigger Garmin sync
-
 ```bash
 curl -X POST http://localhost:8000/api/v1/sync/garmin
-curl http://localhost:8000/api/v1/providers/garmin/status
 curl -X POST http://localhost:8000/api/v1/process
 curl -X POST http://localhost:8000/api/v1/analytics/compute
-curl http://localhost:8000/api/v1/analytics/load
-```
-
-### MCP server (any assistant)
-
-The installer writes `config/mcp-client.json` with this server's URL and bearer token. Paste that into Claude, Cursor, ChatGPT, Perplexity, LM Studio, or any other app that speaks MCP. The assistant is the language model. This server does not need that app's API key.
-
-Coaching tools: `get_recent_activities`, `get_sleep_summary`, `get_hrv_trend`, `get_training_readiness`, `get_recovery_state`, `get_weekly_load`, `get_injury_risk`, `explain_today`, `generate_daily_training_plan`, `summarize_last_week`.
-
-An assistant that cannot speak MCP can call the REST coach endpoints with the same bearer token. To have this server write the narration itself, set `COACH_LLM_PROVIDER` to `openai`, `anthropic`, `ollama`, or `openai_compatible` (any `/v1/chat/completions` server). Without a model, those endpoints use deterministic briefings. See [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md).
-
-```bash
 curl -X POST http://localhost:8000/api/v1/coach/explain-today
-curl -X POST http://localhost:8000/api/v1/coach/daily-plan
-curl -X POST http://localhost:8000/api/v1/coach/weekly-summary
 ```
 
-Set `MCP_TRANSPORT=streamable-http` and `MCP_PORT=8080` for HTTP mode in Docker.
+## A note on data privacy
 
-### Development
+This server keeps your Garmin history in a database you run. When an assistant calls the MCP tools, the activity, sleep, and recovery facts you synced are sent to that assistant's provider. You choose which assistant, and you can skip any detail you do not want to share.
 
-```bash
-uv run ruff check src tests
-uv run pytest
-uv run mypy
-```
+The Garmin password never goes into that conversation. It is typed into the sign-in page or the local script, used once, and discarded.
 
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer design and [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) for LLM/MCP setup.
-
-## Project Structure
+## Repo structure
 
 ```
-src/endurance_coach/
-├── collector/     # Provider sync, token management, raw JSON storage
-├── processor/     # Normalize activities, sleep, HRV, readiness, etc.
-├── analytics/     # Deterministic CTL, ATL, TSB, ACWR, recovery, injury risk
-├── coach/         # LangGraph-ready; LLM explains pre-computed metrics only
-├── mcp/           # MCP tool exposure for AI assistants
-├── api/           # FastAPI backend
-├── db/            # SQLAlchemy models and session management
-├── domain/        # Shared Pydantic types and enums
-└── di/            # Dependency injection container
+endurance-coach/
+  README.md
+  INSTALL.md                         setup, alerts, and the MCP client file
+  docs/GARMIN_AUTH.md                sign-in page, password rules, token alerts
+  docs/LLM_INTEGRATION.md            any MCP client, or a local model
+  installer/Install-EnduranceCoach.ps1
+  src/endurance_coach/
+    collector/                       Garmin sync and saved tokens
+    processor/                       activities, sleep, HRV, readiness
+    analytics/                       CTL, ATL, TSB, ACWR, recovery, injury risk
+    coach/                           explains those numbers; does not recalculate them
+    mcp/                             tools for any MCP assistant
+    api/                             HTTP coach and Garmin sign-in page
 ```
 
-## License
+## Feedback
 
-MIT
+If you install it and something is missing or wrong, open an issue.
+
+## Disclaimer
+
+This is not a physician and it is not a substitute for a coach. Chest pain, fainting, or pain that is getting worse needs a person qualified to evaluate it. The readiness rules can turn a planned hard day into easy movement or rest. They cannot diagnose an injury.
