@@ -79,36 +79,139 @@ function New-GarminPhoneLoginLink {
     return "$($script:PublicBaseUrl)/api/v1/garmin/login?t=$token"
 }
 
-function Send-GarminAuthAlert([string]$Reason) {
-    $topic = $script:NtfyTopic
-    if (-not $topic) { return $false }
-    $link = New-GarminPhoneLoginLink
-    if ($link) {
-        $summary = "Garmin rejected the saved login. Open the sign-in page, enter your Garmin email and password, then the verification code if Garmin asks for one. Leave the server VPN off until sign-in finishes."
-    } else {
-        $summary = "Garmin login failed. Sync will retry once an hour until it succeeds. To fix it now, run python scripts/garmin_auth.py from the project directory."
+function New-GarminAlertSummary([bool]$HasLink) {
+    if ($HasLink) {
+        return "Garmin rejected the saved login on this server. The link opens the sign-in page hosted on this server, because Garmin sign-in has to run on this computer. Type your Garmin email, password, and verification code on that page. The password is used only for that sign-in. It is not saved, and this alert does not contain it. Leave the server VPN off until the page says you are signed in."
     }
+    return "Garmin rejected the saved login. Sign-in has to run on this server. On this computer, run python scripts/garmin_auth.py and type the Garmin email, password, and verification code there. The password is used only for that sign-in. It is not saved, and this alert does not contain it."
+}
+
+function Get-GarminAlertProviders {
+    $raw = $script:AlertProvider
+    if ($raw) {
+        return @($raw.Split(",") | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ -and $_ -ne "none" })
+    }
+    if ($script:NtfyTopic) { return @("ntfy") }
+    return @()
+}
+
+function Send-GarminAlertNtfy([string]$Summary, [string]$Link) {
+    $topic = $script:NtfyTopic
+    if (-not $topic) {
+        Write-Log "Garmin ntfy alert skipped: no topic."
+        return $false
+    }
+    if ($topic -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') {
+        Write-Log "Garmin ntfy alert skipped: topic must be one name, not a URL."
+        return $false
+    }
+    $server = $script:NtfyServer
+    if (-not $server) { $server = "https://ntfy.sh" }
+    $server = $server.TrimEnd("/")
     $headers = @{
         Title = "Endurance Coach: Garmin login failed"
         Priority = "high"
         Tags = "warning"
     }
-    if ($link) {
-        $headers["Click"] = $link
-        $headers["Actions"] = "view, Sign in, $link"
+    if ($Link) {
+        $headers["Click"] = $Link
+        $headers["Actions"] = "view, Sign in, $Link"
     }
     if ($script:NtfyToken) {
         $headers["Authorization"] = "Bearer $($script:NtfyToken)"
         $headers["Email"] = "yes"
     }
-    try {
-        Invoke-RestMethod -Method POST -Uri "https://ntfy.sh/$topic" -Body $summary -ContentType "text/plain; charset=utf-8" -Headers $headers | Out-Null
-        Write-Log "Sent Garmin auth alert."
-        return $true
-    } catch {
-        Write-Log "Garmin auth alert failed: $($_.Exception.Message)"
+    Invoke-RestMethod -Method POST -Uri "$server/$topic" -Body $Summary -ContentType "text/plain; charset=utf-8" -Headers $headers -TimeoutSec 20 | Out-Null
+    Write-Log "Sent Garmin auth alert via ntfy."
+    return $true
+}
+
+function Send-GarminAlertEmail([string]$Summary, [string]$Link) {
+    $smtpHost = $script:AlertSmtpHost
+    $to = $script:AlertEmailTo
+    if (-not $smtpHost -or -not $to) {
+        Write-Log "Garmin email alert skipped: SMTP host or recipient is empty."
         return $false
     }
+    $from = $script:AlertSmtpFrom
+    if (-not $from) { $from = $script:AlertSmtpUser }
+    if (-not $from) {
+        Write-Log "Garmin email alert skipped: no From address."
+        return $false
+    }
+    $port = 587
+    if ($script:AlertSmtpPort -match '^\d+$') { $port = [int]$script:AlertSmtpPort }
+    $body = $Summary
+    if ($Link) { $body = $Summary + "`r`n`r`n" + $Link }
+    $message = New-Object System.Net.Mail.MailMessage($from, $to, "Endurance Coach: Garmin login failed", $body)
+    $client = New-Object System.Net.Mail.SmtpClient($smtpHost, $port)
+    $client.EnableSsl = ($port -ne 25)
+    $client.Timeout = 20000
+    if ($script:AlertSmtpUser) {
+        $client.Credentials = New-Object System.Net.NetworkCredential($script:AlertSmtpUser, $script:AlertSmtpPassword)
+    }
+    try {
+        $client.Send($message)
+    } finally {
+        $message.Dispose()
+        $client.Dispose()
+    }
+    Write-Log "Sent Garmin auth alert via email."
+    return $true
+}
+
+function Send-GarminAlertWebhook([string]$Summary, [string]$Link) {
+    $url = $script:AlertWebhookUrl
+    if (-not $url) {
+        Write-Log "Garmin webhook alert skipped: no URL."
+        return $false
+    }
+    $safeLink = if ($Link) { $Link } else { "" }
+    $headers = @{}
+    if ($script:AlertWebhookHeader -match '^([^:]+):\s*(.+)$') {
+        $headers[$Matches[1].Trim()] = $Matches[2].Trim()
+    }
+    if ($script:AlertWebhookBody) {
+        $body = $script:AlertWebhookBody.Replace("{message}", $Summary).Replace("{link}", $safeLink)
+        $contentType = $script:AlertWebhookContentType
+        if (-not $contentType) {
+            $contentType = "application/x-www-form-urlencoded"
+        }
+    } else {
+        $body = @{
+            title = "Endurance Coach: Garmin login failed"
+            message = $Summary
+            link = $safeLink
+        } | ConvertTo-Json -Compress
+        $contentType = "application/json"
+    }
+    Invoke-RestMethod -Method POST -Uri $url -Body $body -ContentType $contentType -Headers $headers -TimeoutSec 20 | Out-Null
+    Write-Log "Sent Garmin auth alert via webhook."
+    return $true
+}
+
+function Send-GarminAuthAlert([string]$Reason) {
+    $providers = @(Get-GarminAlertProviders)
+    if ($providers.Count -eq 0) { return $false }
+    $link = New-GarminPhoneLoginLink
+    $summary = New-GarminAlertSummary -HasLink ([bool]$link)
+    $sent = $false
+    foreach ($provider in $providers) {
+        try {
+            $ok = $false
+            switch ($provider) {
+                "ntfy" { $ok = Send-GarminAlertNtfy -Summary $summary -Link $link }
+                "email" { $ok = Send-GarminAlertEmail -Summary $summary -Link $link }
+                "webhook" { $ok = Send-GarminAlertWebhook -Summary $summary -Link $link }
+                "sms" { $ok = Send-GarminAlertWebhook -Summary $summary -Link $link }
+                default { Write-Log "Garmin alert provider '$provider' is not supported." }
+            }
+            if ($ok) { $sent = $true }
+        } catch {
+            Write-Log "Garmin auth alert via $provider failed: $($_.Exception.Message)"
+        }
+    }
+    return $sent
 }
 
 function Read-GarminAuthRetry {
@@ -211,10 +314,34 @@ if (Test-Path $EnvFile) {
     foreach ($line in Get-Content $EnvFile) {
         if ($line -match '^\s*API_SECRET_KEY=(.+)$') {
             $script:ApiSecretKey = $Matches[1].Trim()
+        } elseif ($line -match '^\s*GARMIN_ALERT_PROVIDER=(.+)$') {
+            $script:AlertProvider = $Matches[1].Trim().Trim('"').Trim("'")
         } elseif ($line -match '^\s*GARMIN_ALERT_NTFY_TOPIC=(.+)$') {
             $script:NtfyTopic = $Matches[1].Trim().Trim('"').Trim("'")
         } elseif ($line -match '^\s*GARMIN_ALERT_NTFY_TOKEN=(.+)$') {
             $script:NtfyToken = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_NTFY_SERVER=(.+)$') {
+            $script:NtfyServer = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_EMAIL_TO=(.+)$') {
+            $script:AlertEmailTo = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_SMTP_HOST=(.+)$') {
+            $script:AlertSmtpHost = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_SMTP_PORT=(.+)$') {
+            $script:AlertSmtpPort = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_SMTP_USER=(.+)$') {
+            $script:AlertSmtpUser = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_SMTP_PASSWORD=(.+)$') {
+            $script:AlertSmtpPassword = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_SMTP_FROM=(.+)$') {
+            $script:AlertSmtpFrom = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_WEBHOOK_URL=(.+)$') {
+            $script:AlertWebhookUrl = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_WEBHOOK_HEADER=(.+)$') {
+            $script:AlertWebhookHeader = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_WEBHOOK_BODY=(.+)$') {
+            $script:AlertWebhookBody = $Matches[1].Trim().Trim('"').Trim("'")
+        } elseif ($line -match '^\s*GARMIN_ALERT_WEBHOOK_CONTENT_TYPE=(.+)$') {
+            $script:AlertWebhookContentType = $Matches[1].Trim().Trim('"').Trim("'")
         } elseif ($line -match '^\s*PUBLIC_BASE_URL=(.+)$') {
             $script:PublicBaseUrl = $Matches[1].Trim().Trim('"').Trim("'").TrimEnd("/")
         }

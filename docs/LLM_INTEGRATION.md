@@ -34,8 +34,8 @@ It does **not** receive raw Garmin/Strava JSON and must **not** compute CTL, ATL
 Run the full pipeline after connecting providers:
 
 ```bash
-# Garmin (one-time external auth)
-uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-auth
+# Garmin (one-time sign-in on this machine)
+python scripts/garmin_auth.py
 
 # Strava (OAuth via browser)
 # 1. Set STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET in .env
@@ -178,7 +178,13 @@ Response shape:
 
 ---
 
-## Step 4: Connect an AI Assistant via MCP
+## Step 4: Connect any assistant
+
+There are three ways to use the same Garmin pipeline. Pick the one the assistant already supports.
+
+1. **MCP client.** Claude, Cursor, ChatGPT, Perplexity, LM Studio, a local agent, or any later app that speaks streamable HTTP MCP. Point it at `https://YOUR_HOST/mcp` (or `http://127.0.0.1:8080/mcp` on this machine) with `Authorization: Bearer API_SECRET_KEY`. The installer saves this as `config/mcp-client.json`. The assistant is the language model, so this server does not need that app's API key. The tools return the stored activities, sleep, load, recovery, and risk. `explain_today` uses the built-in model only when one is configured, and otherwise returns the deterministic briefing.
+2. **REST.** An assistant, script, or shortcut that cannot speak MCP calls `POST /api/v1/coach/explain-today`, `/api/v1/coach/daily-plan`, or `/api/v1/coach/weekly-summary` with the same bearer token.
+3. **Built-in narration.** Set `COACH_LLM_PROVIDER` so this server writes the briefing. `openai_compatible` covers any server with `POST /v1/chat/completions`, including ones that do not exist yet. A browser client whose site is rejected can be added to `MCP_ALLOWED_ORIGINS` without a code change.
 
 The MCP server (`endurance-coach-mcp`) exposes coaching tools that read from your database.
 
@@ -254,12 +260,7 @@ Add to Cursor MCP settings (`~/.cursor/mcp.json` or Cursor Settings → MCP):
 | `generate_daily_training_plan` | Structured plan |
 | `summarize_last_week` | Weekly narrative |
 
-### Running alongside garmin_mcp
-
-This project **does not** replace [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp). Run both MCP servers:
-
-- **garmin_mcp** — raw Garmin API access (110+ tools)
-- **endurance-coach** — coaching context from your analytics pipeline
+A separate Garmin MCP server is not required. This server syncs Garmin with `scripts/garmin_auth.py` and exposes the coaching tools above.
 
 ---
 
@@ -309,6 +310,10 @@ COACH_LLM_MODEL=llama3.1
 
 ## Extending with a Custom LLM Provider
 
+A new host that already speaks `POST /v1/chat/completions` needs no code. Set `COACH_LLM_PROVIDER=openai_compatible`, `COACH_LLM_BASE_URL`, and `COACH_LLM_MODEL`.
+
+A provider with a different API needs a small factory:
+
 1. Create a factory in `coach/llm.py` implementing `ChatModelFactory`
 2. Return a LangChain `BaseChatModel` from `.create()`
 3. Register it in `create_chat_model_factory()` for your `COACH_LLM_PROVIDER` value
@@ -331,7 +336,7 @@ The coach graph does not change — only the `generate_response` node's LLM back
 | Empty metrics in briefing | Run `POST /api/v1/analytics/compute` first |
 | MCP tools fail to connect | Verify `DATABASE_URL` in MCP env matches API |
 | Strava sync empty | Complete OAuth at `/api/v1/providers/strava/connect` |
-| Garmin sync fails | Re-run `garmin-mcp-auth`; check `GARMIN_TOKEN_PATH` mount |
+| Garmin sync fails | Run `python scripts/garmin_auth.py` with the VPN off; check `GARMIN_TOKEN_PATH` |
 | Ollama connection refused | Ensure `ollama serve` is running; set correct `COACH_LLM_BASE_URL` |
 | Azure/OpenAI 404 | Verify `COACH_LLM_BASE_URL` includes deployment path |
 
@@ -351,7 +356,7 @@ docker compose up -d postgres api
 uv run alembic upgrade head
 
 # 4. Auth providers
-uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-auth
+python scripts/garmin_auth.py
 # Browser: https://YOUR_HOST/api/v1/providers/strava/connect
 
 # 5. Pipeline

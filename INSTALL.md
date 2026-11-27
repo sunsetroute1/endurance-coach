@@ -9,7 +9,7 @@ cd C:\path\to\endurance-coach
 powershell -ExecutionPolicy Bypass -File installer\Install-EnduranceCoach.ps1
 ```
 
-The installer runs an **interactive setup wizard** that prompts for database URL, athlete email, timezone, public URL, API secret (auto-generated or paste your own), and optional Strava/LLM keys. At the end it prints your **API secret** and a ready-to-copy **Perplexity MCP JSON** block — no need to open `.env` manually.
+The installer runs an **interactive setup wizard** that prompts for database URL, athlete email, timezone, public URL, and an API secret (auto-generated or paste your own). It then asks whether your own MCP client is the assistant, or this server should call a cloud or local model. At the end it prints the bearer token and writes `config/mcp-client.json` for any MCP app.
 
 ```powershell
 cd C:\path\to\endurance-coach
@@ -58,17 +58,21 @@ The installer wizard fills `.env` for you. You can rerun the installer to fill e
 | `DATABASE_URL` | PostgreSQL connection string |
 | `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` | Optional — paste during wizard |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Optional — paste during wizard |
-| `GARMIN_*` passwords | **Never** in `.env — use `scripts/garmin_auth.py` after install |
+| `GARMIN_ALERT_PROVIDER` | `ntfy` (default, free), `email`, `webhook`, or `none` |
+| `GARMIN_ALERT_NTFY_TOPIC` | ntfy topic. Optional token emails the same alert |
+| Garmin password | **Never** in `.env` or in the alert. Typed only into the sign-in page or `scripts/garmin_auth.py` |
 
 ## Post-install steps
 
 ### 1. Garmin authentication (2FA supported)
 
+The first sign-in runs on this computer. You type the Garmin email, password, and verification code in that window. The password is used only for that sign-in and is not saved.
+
 ```powershell
 .venv\Scripts\python.exe scripts\garmin_auth.py
 ```
 
-Tokens saved to `~/.garminconnect`.
+Tokens are saved to `~/.garminconnect`. When a later token expires, the alert opens the sign-in page on this server (`PUBLIC_BASE_URL/api/v1/garmin/login`). That page is local because Garmin login has to run here. The password is typed there, used only for that sign-in, and is not included in the alert. The installer sets this up. The default alert is ntfy.sh. Email and an HTTPS webhook are the other choices.
 
 ### 2. Start services
 
@@ -90,13 +94,29 @@ curl http://127.0.0.1:8000/api/v1/server
 3. Add `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` to `.env`
 4. Visit `/api/v1/providers/strava/connect`
 
-### 5. MCP client (Cursor / Claude)
+### 5. Connect an assistant
+
+The installer asks whether an outside MCP client is the assistant, or this server should call a model. Either way it writes `config/mcp-client.json`. Paste that file into any MCP app. On this machine the connector is `http://127.0.0.1:8080/mcp`. A public `PUBLIC_BASE_URL` uses `https://YOUR_HOST/mcp` through Caddy.
+
+A client that cannot speak MCP uses the same bearer token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/coach/explain-today -H "Authorization: Bearer YOUR_API_SECRET_KEY"
+```
+
+For built-in narration, set `COACH_LLM_PROVIDER` to `openai`, `anthropic`, `ollama`, or `openai_compatible`, plus the model name and base URL. `openai_compatible` is any server that accepts `POST /v1/chat/completions`. If a browser client is rejected, add its site to `MCP_ALLOWED_ORIGINS`.
+
+Example shape, also in `installer/mcp-client.example.json`:
 
 ```json
 {
-  "url": "https://YOUR_HOST/mcp",
-  "transport": "streamable-http",
-  "headers": { "Authorization": "Bearer YOUR_API_SECRET_KEY" }
+  "mcpServers": {
+    "endurance-coach": {
+      "url": "https://YOUR_HOST/mcp",
+      "transport": "streamable-http",
+      "headers": { "Authorization": "Bearer YOUR_API_SECRET_KEY" }
+    }
+  }
 }
 ```
 

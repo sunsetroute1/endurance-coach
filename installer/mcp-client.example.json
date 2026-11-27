@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "endurance-coach": {
+      "url": "https://YOUR_HOST/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_SECRET_KEY"
+      }
+    }
+  }
+}

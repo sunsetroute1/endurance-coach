@@ -98,7 +98,11 @@ if (-not $SkipZip) {
         ".venv", "__pycache__", ".git", "logs", "dist", "data", "android", "config",
         ".mypy_cache", ".pytest_cache", ".ruff_cache", "node_modules", "docker-data"
     )
-    $excludeFiles = @("*.pyc", ".env", "coach-active.marker", "resource-limits.env", "energy-report.html")
+    $excludeFiles = @(
+        "*.pyc", ".env", "coach-active.marker", "resource-limits.env", "energy-report.html",
+        "local.json", "GARMIN_ACTIVITY_DETAILS.md", "GARMIN_METRICS.md",
+        "GARMIN_RECOVERY.md", "GARMIN_TRENDS.md"
+    )
     $staging = Join-Path $env:TEMP "endurance-coach-pkg-$Stamp-$PID"
     if (Test-Path $staging) {
         Remove-Item $staging -Recurse -Force

@@ -8,9 +8,11 @@ Accounts with 2FA are supported. Garmin asks for a verification code during that
 
 ## Sign in from your phone
 
-When Garmin rejects the saved token, the sync alert includes a sign-in link. Open it on your phone, enter the Garmin email and password, then the verification code if Garmin asks for one. Leave the server VPN off until the page says you are signed in.
+When Garmin rejects the saved token, the scheduled sync sends one alert. The default service is [ntfy.sh](https://ntfy.sh), which is free. Install the ntfy app and subscribe to `GARMIN_ALERT_NTFY_TOPIC`. An optional ntfy access token also emails that alert to the address on the ntfy account. The installer can switch the alert to your own SMTP server, or to an HTTPS webhook for an SMS provider or another service. More than one can be listed in `GARMIN_ALERT_PROVIDER`, for example `ntfy,email`. `none` turns alerts off.
 
-The link stays valid for 12 hours. The desktop shortcut **Garmin Login** starts `scripts/garmin_auth.py` when you are at the server.
+The alert does not contain the Garmin password. Its link opens `PUBLIC_BASE_URL/api/v1/garmin/login`, a page hosted by this server. The page has to run on this computer because the Garmin login call is made from here. You type the email, password, and verification code on that page. The password is used only for that sign-in. It is not saved, not written to disk, and not sent to ntfy, email, or the webhook.
+
+The link stays valid for 12 hours. Leave the server VPN off until the page says you are signed in. The desktop shortcut **Garmin Login** starts `scripts/garmin_auth.py` when you are at the server. That script asks for the same password in the terminal, uses it only for that sign-in, and does not save it.
 
 ## Sign in at the server
 

@@ -40,7 +40,8 @@ LOGIN_PAGE_HTML = """<!DOCTYPE html>
 <body>
 <main>
   <h1>Garmin sign-in</h1>
-  <p>This replaces the saved Garmin login on the server. The password is sent only for this sign-in and is not stored.</p>
+  <p>This page is on your server. Garmin sign-in runs here, on this computer. Type your Garmin email, password, and the verification code if Garmin asks for one.</p>
+  <p>The password is used only for this sign-in. It is not saved, not written to disk, and not sent to the alert service. The alert that opened this page does not contain the password.</p>
   <p>Leave the server VPN off until this finishes.</p>
   <form id="credentials">
     <label for="email">Garmin email or username</label>

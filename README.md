@@ -89,15 +89,13 @@ curl -X POST http://localhost:8000/api/v1/analytics/compute
 curl http://localhost:8000/api/v1/analytics/load
 ```
 
-### MCP server (Cursor / Claude Desktop)
+### MCP server (any assistant)
 
-```bash
-uv run endurance-coach-mcp
-```
+The installer writes `config/mcp-client.json` with this server's URL and bearer token. Paste that into Claude, Cursor, ChatGPT, Perplexity, LM Studio, or any other app that speaks MCP. The assistant is the language model. This server does not need that app's API key.
 
 Coaching tools: `get_recent_activities`, `get_sleep_summary`, `get_hrv_trend`, `get_training_readiness`, `get_recovery_state`, `get_weekly_load`, `get_injury_risk`, `explain_today`, `generate_daily_training_plan`, `summarize_last_week`.
 
-Set `OPENAI_API_KEY` (or another provider — see [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md)) for LLM-backed coaching; without it, deterministic briefings are used.
+An assistant that cannot speak MCP can call the REST coach endpoints with the same bearer token. To have this server write the narration itself, set `COACH_LLM_PROVIDER` to `openai`, `anthropic`, `ollama`, or `openai_compatible` (any `/v1/chat/completions` server). Without a model, those endpoints use deterministic briefings. See [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md).
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/coach/explain-today

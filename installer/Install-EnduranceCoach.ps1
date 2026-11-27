@@ -263,6 +263,101 @@ function New-ApiSecretKey {
     return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
+function Set-GarminAlertSettings {
+    if ($NonInteractive) { return }
+
+    Write-Host ""
+    Write-Host "Garmin token alerts" -ForegroundColor Yellow
+    Write-Host "When Garmin rejects the saved token, one alert is sent. The alert does not contain the Garmin password."
+    Write-Host "The link opens a sign-in page hosted by this server, at PUBLIC_BASE_URL/api/v1/garmin/login."
+    Write-Host "That page has to run on this computer, because the Garmin login call is made from here."
+    Write-Host "You type the Garmin email, password, and verification code on that page."
+    Write-Host "The password is used only for that sign-in. It is not saved, not written to disk, and not sent to the alert service."
+    Write-Host "The same rule applies to the local script, scripts\garmin_auth.py, if you sign in at this computer."
+    $publicNow = Get-EnvValueFromFile $EnvFile "PUBLIC_BASE_URL"
+    if (-not $publicNow) {
+        Write-Host "PUBLIC_BASE_URL is empty, so a phone cannot open that page yet. Set a URL the phone can reach, or sign in with the local script." -ForegroundColor Yellow
+    }
+    Write-Host "  1  ntfy.sh (default, free). Install the ntfy app and subscribe to a topic. An access token also emails the alert."
+    Write-Host "  2  Email through your own mail server."
+    Write-Host "  3  Another SMS or alert service, via an HTTPS webhook you provide."
+    Write-Host "  4  No alert. Sign in on this computer when sync pauses."
+    $currentProvider = Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_PROVIDER"
+    if (-not $currentProvider) { $currentProvider = "1" }
+    $choiceDefault = switch ($currentProvider.ToLower()) {
+        "email" { "2" }
+        "webhook" { "3" }
+        "sms" { "3" }
+        "none" { "4" }
+        default { "1" }
+    }
+    $choice = Read-SettingPrompt -Label "Alert choice" -Default $choiceDefault
+
+    switch ($choice) {
+        "2" {
+            Set-EnvValue $EnvFile "GARMIN_ALERT_PROVIDER" "email"
+            $to = Read-SettingPrompt -Label "Alert email address" -Default (Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_EMAIL_TO")
+            if ($to) { Set-EnvValue $EnvFile "GARMIN_ALERT_EMAIL_TO" $to }
+            $smtpDefault = Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_SMTP_HOST"
+            $smtpHost = Read-SettingPrompt -Label "SMTP server" -Default $smtpDefault
+            if ($smtpHost) { Set-EnvValue $EnvFile "GARMIN_ALERT_SMTP_HOST" $smtpHost }
+            $portDefault = Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_SMTP_PORT"
+            if (-not $portDefault) { $portDefault = "587" }
+            $port = Read-SettingPrompt -Label "SMTP port" -Default $portDefault
+            if ($port) { Set-EnvValue $EnvFile "GARMIN_ALERT_SMTP_PORT" $port }
+            $user = Read-SettingPrompt -Label "SMTP username" -Default (Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_SMTP_USER") -AllowBlank
+            if ($user) { Set-EnvValue $EnvFile "GARMIN_ALERT_SMTP_USER" $user }
+            if (Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_SMTP_PASSWORD") {
+                Write-Host "SMTP password: already set (Enter to keep). This is the mailbox password, not the Garmin password."
+            } else {
+                Write-Host "SMTP password is the mailbox password, not the Garmin password."
+            }
+            $smtpPassword = Read-SettingPrompt -Label "SMTP password" -AllowBlank -Secret
+            if ($smtpPassword) { Set-EnvValue $EnvFile "GARMIN_ALERT_SMTP_PASSWORD" $smtpPassword }
+            $fromDefault = Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_SMTP_FROM"
+            if (-not $fromDefault) { $fromDefault = $user }
+            $from = Read-SettingPrompt -Label "From address" -Default $fromDefault -AllowBlank
+            if ($from) { Set-EnvValue $EnvFile "GARMIN_ALERT_SMTP_FROM" $from }
+        }
+        "3" {
+            Set-EnvValue $EnvFile "GARMIN_ALERT_PROVIDER" "webhook"
+            Write-Host "The webhook receives the alert text and the sign-in link. It does not receive the Garmin password."
+            $url = Read-SettingPrompt -Label "HTTPS webhook URL" -Default (Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_WEBHOOK_URL") -AllowBlank
+            if ($url) { Set-EnvValue $EnvFile "GARMIN_ALERT_WEBHOOK_URL" $url }
+            $header = Read-SettingPrompt -Label "Optional header, Name: value" -AllowBlank
+            if ($header) { Set-EnvValue $EnvFile "GARMIN_ALERT_WEBHOOK_HEADER" $header }
+            Write-Host "Leave the body empty to send JSON with title, message, and link."
+            Write-Host "Or supply a body template. {message} and {link} are replaced. There is no password placeholder."
+            $body = Read-SettingPrompt -Label "Optional body template" -AllowBlank
+            if ($body) { Set-EnvValue $EnvFile "GARMIN_ALERT_WEBHOOK_BODY" $body }
+        }
+        "4" {
+            Set-EnvValue $EnvFile "GARMIN_ALERT_PROVIDER" "none"
+            Write-Host "Alerts are off. When the token expires, run scripts\garmin_auth.py on this computer."
+        }
+        default {
+            Set-EnvValue $EnvFile "GARMIN_ALERT_PROVIDER" "ntfy"
+            Write-Host "Default is ntfy.sh, the free phone notification used by this server."
+            Write-Host "Install the ntfy app and subscribe to the topic. The alert's Sign in action opens this server's page."
+            $topic = Read-SettingPrompt -Label "ntfy topic name" -Default (Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_NTFY_TOPIC") -AllowBlank
+            if ($topic) { Set-EnvValue $EnvFile "GARMIN_ALERT_NTFY_TOPIC" $topic }
+            $serverDefault = Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_NTFY_SERVER"
+            if (-not $serverDefault) { $serverDefault = "https://ntfy.sh" }
+            $server = Read-SettingPrompt -Label "ntfy server" -Default $serverDefault
+            if ($server -and $server -ne "https://ntfy.sh") {
+                Set-EnvValue $EnvFile "GARMIN_ALERT_NTFY_SERVER" $server.TrimEnd("/")
+            }
+            if (Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_NTFY_TOKEN") {
+                Write-Host "ntfy access token: already set (Enter to keep). It emails the alert to the address on that ntfy account."
+            } else {
+                Write-Host "Optional ntfy access token. When set, ntfy also emails the alert. Enter to skip."
+            }
+            $token = Read-SettingPrompt -Label "ntfy access token" -AllowBlank -Secret
+            if ($token) { Set-EnvValue $EnvFile "GARMIN_ALERT_NTFY_TOKEN" $token }
+        }
+    }
+}
+
 function Initialize-EnvFile {
     Write-Step "Setup wizard - configure your deployment"
     if (-not (Test-Path $EnvExample)) {
@@ -339,12 +434,53 @@ function Initialize-EnvFile {
     }
 
     Write-Host ""
-    Write-Host "Optional integrations (Enter to skip each)" -ForegroundColor Yellow
+    Write-Host "Assistant connection" -ForegroundColor Yellow
+    Write-Host "  1  Your own MCP client. Claude, Cursor, ChatGPT, Perplexity, LM Studio, or any other app that speaks MCP."
+    Write-Host "     This server does not need that app's API key. The same bearer token also works for REST."
+    Write-Host "  2  This server calls a model for the built-in coach. OpenAI, Anthropic, Ollama, or any OpenAI-compatible URL."
+    $assistantChoice = Read-SettingPrompt -Label "Choice" -Default "1"
+    if ($assistantChoice -eq "2") {
+        $providerDefault = Get-EnvValueFromFile $EnvFile "COACH_LLM_PROVIDER"
+        if (-not $providerDefault) { $providerDefault = "openai" }
+        $provider = (Read-SettingPrompt -Label "Provider (openai, anthropic, ollama, local)" -Default $providerDefault).ToLower()
+        if ($provider -eq "local") { $provider = "openai_compatible" }
+        Set-EnvValue $EnvFile "COACH_LLM_PROVIDER" $provider
+
+        $modelDefault = Get-EnvValueFromFile $EnvFile "COACH_LLM_MODEL"
+        if (-not $modelDefault) {
+            $modelDefault = switch ($provider) {
+                "anthropic" { "claude-sonnet-4-5" }
+                "ollama" { "llama3.1" }
+                default { "gpt-4o-mini" }
+            }
+        }
+        $model = Read-SettingPrompt -Label "Model name" -Default $modelDefault
+        if ($model) { Set-EnvValue $EnvFile "COACH_LLM_MODEL" $model }
+
+        if ($provider -eq "ollama" -or $provider -eq "openai_compatible") {
+            $urlDefault = Get-EnvValueFromFile $EnvFile "COACH_LLM_BASE_URL"
+            if (-not $urlDefault -and $provider -eq "ollama") { $urlDefault = "http://127.0.0.1:11434/v1" }
+            $baseUrl = Read-SettingPrompt -Label "Model base URL" -Default $urlDefault
+            if ($baseUrl) { Set-EnvValue $EnvFile "COACH_LLM_BASE_URL" $baseUrl.TrimEnd('/') }
+        }
+        if ($provider -eq "openai" -or $provider -eq "openai_compatible") {
+            $key = Read-SettingPrompt -Label "OpenAI-compatible API key (Enter to skip)" -AllowBlank -Secret
+            if ($key) { Set-EnvValue $EnvFile "OPENAI_API_KEY" $key }
+        }
+        if ($provider -eq "anthropic") {
+            $key = Read-SettingPrompt -Label "Anthropic API key" -AllowBlank -Secret
+            if ($key) { Set-EnvValue $EnvFile "ANTHROPIC_API_KEY" $key }
+        }
+    } else {
+        Write-Host "No model key required. Connect any MCP client with the JSON printed at the end."
+    }
+
+    Write-Host ""
+    Write-Host "Optional (Enter to skip each)" -ForegroundColor Yellow
     foreach ($pair in @(
             @{ Key = "STRAVA_CLIENT_ID"; Label = "Strava Client ID" },
             @{ Key = "STRAVA_CLIENT_SECRET"; Label = "Strava Client Secret"; Secret = $true },
-            @{ Key = "OPENAI_API_KEY"; Label = "OpenAI API Key"; Secret = $true },
-            @{ Key = "ANTHROPIC_API_KEY"; Label = "Anthropic API Key"; Secret = $true }
+            @{ Key = "MCP_ALLOWED_ORIGINS"; Label = "Extra MCP site origins, comma-separated (only if a browser client is rejected)" }
         )) {
         $current = Get-EnvValueFromFile $EnvFile $pair.Key
         if ($current) {
@@ -361,9 +497,12 @@ function Initialize-EnvFile {
         }
     }
 
+    Set-GarminAlertSettings
     Write-Host ""
-    Write-Host "Garmin Connect uses a separate login step (MFA supported) after install." -ForegroundColor DarkGray
+    Write-Host "First Garmin sign-in runs in a terminal on this computer:" -ForegroundColor DarkGray
     Write-Host "  .venv\Scripts\python.exe scripts\garmin_auth.py" -ForegroundColor DarkGray
+    Write-Host "You type the Garmin email, password, and verification code in that window." -ForegroundColor DarkGray
+    Write-Host "The password is used only for that sign-in. It is not saved." -ForegroundColor DarkGray
 
     return @{
         ApiSecretKey = $apiSecret
@@ -457,7 +596,7 @@ function Test-CoachHealth {
                 $failed += $check.Name
             }
         } catch {
-            Write-Warning "$($check.Name) health failed: $($check.Url) — $($_.Exception.Message)"
+            Write-Warning "$($check.Name) health failed: $($check.Url) - $($_.Exception.Message)"
             $failed += $check.Name
         }
     }
@@ -483,11 +622,14 @@ function Show-InstallSummary {
     if (-not $publicUrl) {
         $publicUrl = "http://127.0.0.1:8000"
     }
-    $mcpUrl = if ($publicUrl -match "^https?://") {
-        ($publicUrl.TrimEnd('/') + "/mcp")
-    } else {
-        "http://127.0.0.1:8080/mcp"
-    }
+    $mcpUrl = "http://127.0.0.1:8080/mcp"
+    try {
+        $publicUri = [Uri]$publicUrl
+        $loopback = @("127.0.0.1", "localhost", "::1")
+        if ($publicUri.Host -and ($loopback -notcontains $publicUri.Host)) {
+            $mcpUrl = $publicUrl.TrimEnd('/') + "/mcp"
+        }
+    } catch {}
 
     $modeLabel = if ($DockerMode) { "Docker (coach-active.marker)" } else { "Native (scheduled tasks)" }
     $title = if ($Repair) { "Repair complete" } else { "Installation complete" }
@@ -508,15 +650,25 @@ function Show-InstallSummary {
         Write-Host "Your API secret key:" -ForegroundColor Cyan
         Write-Host "  $apiSecret"
         Write-Host ""
-        Write-Host "Perplexity / MCP connector (copy this JSON):" -ForegroundColor Cyan
-        $mcpJson = @{
+        Write-Host "MCP connector for any assistant (copy this JSON):" -ForegroundColor Cyan
+        $mcpServer = @{
             url = $mcpUrl
             transport = "streamable-http"
             headers = @{
                 Authorization = "Bearer $apiSecret"
             }
-        } | ConvertTo-Json -Depth 4
+        }
+        $mcpJson = $mcpServer | ConvertTo-Json -Depth 4
         Write-Host $mcpJson
+        $clientFile = Join-Path $InstallRoot "config\mcp-client.json"
+        New-Item -ItemType Directory -Force -Path (Split-Path $clientFile) | Out-Null
+        @{ mcpServers = @{ "endurance-coach" = $mcpServer } } |
+            ConvertTo-Json -Depth 6 |
+            Set-Content -Path $clientFile -Encoding utf8
+        Write-Host "Saved the same connector to $clientFile"
+        Write-Host "REST, if the assistant cannot speak MCP:"
+        Write-Host "  POST $($publicUrl.TrimEnd('/'))/api/v1/coach/explain-today"
+        Write-Host '  Authorization: Bearer <the API secret above>'
         Write-Host ""
     }
 
@@ -530,7 +682,14 @@ function Show-InstallSummary {
         Write-Host "  - Start now:    powershell -File scripts\restart_app_services.ps1"
     }
     Write-Host "  - Health:       http://127.0.0.1:8000/health  |  http://127.0.0.1:8080/health"
-    Write-Host "  - Perplexity:   reconnect the MCP connector after transport/stateless changes"
+    Write-Host "  - Assistant:    paste config\mcp-client.json into any MCP client, or call the REST coach URL"
+    $alertProvider = Get-EnvValueFromFile $EnvFile "GARMIN_ALERT_PROVIDER"
+    if (-not $alertProvider) { $alertProvider = "ntfy" }
+    if ($alertProvider -eq "none") {
+        Write-Host "  - Garmin alert: off. Sign in on this computer with scripts\garmin_auth.py when the token expires."
+    } else {
+        Write-Host "  - Garmin alert: $alertProvider. The message opens this server's sign-in page and does not contain the Garmin password."
+    }
     if (-not $Short -and -not (Get-EnvValueFromFile $EnvFile "STRAVA_CLIENT_ID")) {
         Write-Host "  - Strava (optional): create app at https://www.strava.com/settings/api, set STRAVA_* in .env"
     }
