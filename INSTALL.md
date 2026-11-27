@@ -56,7 +56,6 @@ The installer wizard fills `.env` for you. You can rerun the installer to fill e
 | `PUBLIC_BASE_URL` | Your public HTTPS URL, or blank for local-only |
 | `DEFAULT_USER_EMAIL` | Your email |
 | `DATABASE_URL` | PostgreSQL connection string |
-| `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` | Optional — paste during wizard |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Optional — paste during wizard |
 | `GARMIN_ALERT_PROVIDER` | `ntfy` (default, free), `email`, `webhook`, or `none` |
 | `GARMIN_ALERT_NTFY_TOPIC` | ntfy topic. Optional token emails the same alert |
@@ -87,14 +86,7 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/v1/server
 ```
 
-### 4. Strava (optional)
-
-1. Create app at https://www.strava.com/settings/api
-2. Set callback domain to your `PUBLIC_BASE_URL` host
-3. Add `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` to `.env`
-4. Visit `/api/v1/providers/strava/connect`
-
-### 5. Connect an assistant
+### 4. Connect an assistant
 
 The installer asks whether an outside MCP client is the assistant, or this server should call a model. Either way it writes `config/mcp-client.json`. Paste that file into any MCP app. On this machine the connector is `http://127.0.0.1:8080/mcp`. A public `PUBLIC_BASE_URL` uses `https://YOUR_HOST/mcp` through Caddy.
 

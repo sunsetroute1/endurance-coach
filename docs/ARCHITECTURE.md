@@ -81,9 +81,9 @@ Our `GarminTokenStore` adapter resolves `GARMIN_TOKEN_PATH` (default `~/.garminc
 ┌───────────────────────────────▼─────────────────────────────────────────┐
 │  Collector (collector/)                                                  │
 │  DataProvider protocol · TokenStore · SyncOrchestrator · RawPayloadRepo  │
-│  ┌─────────┐ ┌──────────────┐ ┌──────┐ ┌───────┐ ┌───────┐ ┌─────────┐ │
-│  │ Garmin  │ │Health Connect│ │ WHOOP│ │ Oura  │ │ Strava│ │  Coros  │ │
-│  └─────────┘ └──────────────┘ └──────┘ └───────┘ └───────┘ └─────────┘ │
+│  ┌─────────┐                                                              │
+│  │ Garmin  │                                                              │
+│  └─────────┘                                                              │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │
 ┌───────────────────────────────▼─────────────────────────────────────────┐
@@ -150,7 +150,6 @@ Every provider implements:
 | Health Connect | Android app + local export API | Batch JSON export initially |
 | WHOOP | OAuth2 API | Official API when available |
 | Oura | OAuth2 v2 | Ring sleep/HRV rich |
-| Strava | OAuth2 | Activities; limited wellness |
 | Coros | API TBD | Activity-focused |
 | Apple Health | iOS export XML / Health Auto Export | Batch import |
 
@@ -276,7 +275,7 @@ uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-au
 | **4** | Analytics calculators + unit tests with fixtures |
 | **5** | MCP tool implementations |
 | **6** | LangGraph coach graph |
-| **7 (partial)** | Strava activities sync + processor; remaining providers planned |
+| **7 (partial)** | Garmin sync, phone sign-in, and MCP for any assistant |
 
 ---
 

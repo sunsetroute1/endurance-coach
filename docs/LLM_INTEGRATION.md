@@ -9,7 +9,7 @@ How to connect AI assistants and various LLM providers to your self-hosted Endur
 Endurance Coach separates **data computation** from **language generation**:
 
 ```
-Providers (Garmin, Strava, …)
+Garmin
         ↓ sync
    raw_payloads (immutable JSON)
         ↓ process
@@ -25,7 +25,7 @@ The LLM layer only receives:
 - Deterministic analysis flags (training focus, elevated ACWR, etc.)
 - Normalized activity summaries
 
-It does **not** receive raw Garmin/Strava JSON and must **not** compute CTL, ATL, TSB, or ACWR itself.
+It does **not** receive raw Garmin JSON and must **not** compute CTL, ATL, TSB, or ACWR itself.
 
 ---
 
@@ -37,13 +37,8 @@ Run the full pipeline after connecting providers:
 # Garmin (one-time sign-in on this machine)
 python scripts/garmin_auth.py
 
-# Strava (OAuth via browser)
-# 1. Set STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET in .env
-# 2. Visit https://YOUR_HOST/api/v1/providers/strava/connect
-
 # Sync raw data
 curl -X POST https://YOUR_HOST/api/v1/sync/garmin
-curl -X POST https://YOUR_HOST/api/v1/sync/strava
 
 # Normalize into canonical tables
 curl -X POST https://YOUR_HOST/api/v1/process
@@ -335,7 +330,6 @@ The coach graph does not change — only the `generate_response` node's LLM back
 | Coach returns template text, not LLM prose | Set `OPENAI_API_KEY` (or provider key); check `COACH_LLM_PROVIDER` |
 | Empty metrics in briefing | Run `POST /api/v1/analytics/compute` first |
 | MCP tools fail to connect | Verify `DATABASE_URL` in MCP env matches API |
-| Strava sync empty | Complete OAuth at `/api/v1/providers/strava/connect` |
 | Garmin sync fails | Run `python scripts/garmin_auth.py` with the VPN off; check `GARMIN_TOKEN_PATH` |
 | Ollama connection refused | Ensure `ollama serve` is running; set correct `COACH_LLM_BASE_URL` |
 | Azure/OpenAI 404 | Verify `COACH_LLM_BASE_URL` includes deployment path |
@@ -357,11 +351,9 @@ uv run alembic upgrade head
 
 # 4. Auth providers
 python scripts/garmin_auth.py
-# Browser: https://YOUR_HOST/api/v1/providers/strava/connect
 
 # 5. Pipeline
 curl -X POST https://YOUR_HOST/api/v1/sync/garmin
-curl -X POST https://YOUR_HOST/api/v1/sync/strava
 curl -X POST https://YOUR_HOST/api/v1/process
 curl -X POST https://YOUR_HOST/api/v1/analytics/compute
 

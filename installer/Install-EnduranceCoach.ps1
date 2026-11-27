@@ -478,8 +478,6 @@ function Initialize-EnvFile {
     Write-Host ""
     Write-Host "Optional (Enter to skip each)" -ForegroundColor Yellow
     foreach ($pair in @(
-            @{ Key = "STRAVA_CLIENT_ID"; Label = "Strava Client ID" },
-            @{ Key = "STRAVA_CLIENT_SECRET"; Label = "Strava Client Secret"; Secret = $true },
             @{ Key = "MCP_ALLOWED_ORIGINS"; Label = "Extra MCP site origins, comma-separated (only if a browser client is rejected)" }
         )) {
         $current = Get-EnvValueFromFile $EnvFile $pair.Key
@@ -689,9 +687,6 @@ function Show-InstallSummary {
         Write-Host "  - Garmin alert: off. Sign in on this computer with scripts\garmin_auth.py when the token expires."
     } else {
         Write-Host "  - Garmin alert: $alertProvider. The message opens this server's sign-in page and does not contain the Garmin password."
-    }
-    if (-not $Short -and -not (Get-EnvValueFromFile $EnvFile "STRAVA_CLIENT_ID")) {
-        Write-Host "  - Strava (optional): create app at https://www.strava.com/settings/api, set STRAVA_* in .env"
     }
     Write-Host ""
     Write-Host "Docs: INSTALL.md"

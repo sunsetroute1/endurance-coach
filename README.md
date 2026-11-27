@@ -1,12 +1,10 @@
 # Endurance Coach
 
-Modular, self-hostable AI endurance coaching platform. Ingests wearable data from multiple providers, computes deterministic sports-science metrics, and exposes coaching context through an MCP server.
+Self-hosted endurance coaching for Garmin. It syncs your Garmin data, computes training metrics, and exposes them through an MCP server so any assistant can coach from those numbers.
 
 ## Status
 
-**Phase 7 (partial)** — Strava OAuth sync for activities. LangGraph coach with multi-provider LLM support.
-
-Garmin sign-in uses `python scripts/garmin_auth.py` or the phone page linked from a sync alert. Strava uses OAuth2 via `/api/v1/providers/strava/connect`.
+Garmin sign-in uses `python scripts/garmin_auth.py` or the phone page linked from a sync alert. The password is used only for that sign-in and is not stored.
 
 **LLM setup:** see [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) for connecting OpenAI, Anthropic, Ollama, LM Studio, and MCP clients.
 
@@ -18,7 +16,7 @@ Garmin sign-in uses `python scripts/garmin_auth.py` or the phone page linked fro
 powershell -ExecutionPolicy Bypass -File installer\Install-EnduranceCoach.ps1
 ```
 
-See [INSTALL.md](INSTALL.md) for prerequisites, optional Caddy/DuckDNS, and post-install Garmin/Strava setup.
+See [INSTALL.md](INSTALL.md) for prerequisites, optional Caddy/DuckDNS, and post-install Garmin setup.
 
 ### Manual setup (uv + Docker)
 
@@ -40,34 +38,6 @@ Tokens are saved to `~/.garminconnect` and referenced via `GARMIN_TOKEN_PATH` in
 
 See [docs/GARMIN_AUTH.md](docs/GARMIN_AUTH.md) for the phone page, Docker mounts, and troubleshooting.
 
-### Strava Authentication (OAuth2)
-
-1. Create an app at https://www.strava.com/settings/api
-2. Set **Authorization Callback Domain** to your public host (from `PUBLIC_BASE_URL` in `.env`)
-3. Add to `.env`:
-
-```env
-STRAVA_CLIENT_ID=your_client_id
-STRAVA_CLIENT_SECRET=your_client_secret
-```
-
-4. Authorize in browser:
-
-```bash
-# Local
-open http://localhost:8000/api/v1/providers/strava/connect
-
-# Production (set PUBLIC_BASE_URL in .env first)
-open https://YOUR_HOST/api/v1/providers/strava/connect
-```
-
-5. Sync activities:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/sync/strava
-curl http://localhost:8000/api/v1/providers/strava/status
-```
-
 ### Setup
 
 ```bash
@@ -82,7 +52,6 @@ uv run endurance-coach-api
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sync/garmin
-curl -X POST http://localhost:8000/api/v1/sync/strava
 curl http://localhost:8000/api/v1/providers/garmin/status
 curl -X POST http://localhost:8000/api/v1/process
 curl -X POST http://localhost:8000/api/v1/analytics/compute
