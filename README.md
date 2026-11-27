@@ -6,7 +6,7 @@ Modular, self-hostable AI endurance coaching platform. Ingests wearable data fro
 
 **Phase 7 (partial)** — Strava OAuth sync for activities. LangGraph coach with multi-provider LLM support.
 
-Garmin authentication is delegated to [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp). Strava uses OAuth2 via `/api/v1/providers/strava/connect`.
+Garmin sign-in uses `python scripts/garmin_auth.py` or the phone page linked from a sync alert. Strava uses OAuth2 via `/api/v1/providers/strava/connect`.
 
 **LLM setup:** see [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) for connecting OpenAI, Anthropic, Ollama, LM Studio, and MCP clients.
 
@@ -28,22 +28,17 @@ See [INSTALL.md](INSTALL.md) for prerequisites, optional Caddy/DuckDNS, and post
 - [uv](https://docs.astral.sh/uv/) or pip + `requirements.txt`
 - Docker & Docker Compose (for PostgreSQL)
 
-#### Garmin Authentication (delegated, 2FA supported)
+#### Garmin Authentication (2FA supported)
 
-We use [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) for Garmin login — do not store Garmin credentials in this project. **Accounts with 2FA are supported** via a one-time interactive login; the API server only reads saved OAuth tokens afterward.
-
-```bash
-uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-auth
-# Enter email, password, and MFA code when prompted
-```
-
-Tokens are saved to `~/.garminconnect` and referenced via `GARMIN_TOKEN_PATH` in `.env`. Re-auth when tokens expire:
+Do not store the Garmin email or password in this project. **Accounts with 2FA are supported.** At the server, run the login script in a real terminal. When a saved token is rejected, the sync alert includes a phone link to the same sign-in page. The password is used for that sign-in only.
 
 ```bash
-uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-auth --force-reauth
+python scripts/garmin_auth.py
 ```
 
-See [docs/GARMIN_AUTH.md](docs/GARMIN_AUTH.md) for the full 2FA/Docker troubleshooting guide.
+Tokens are saved to `~/.garminconnect` and referenced via `GARMIN_TOKEN_PATH` in `.env`. Sign in again when tokens expire, either with that script or from the phone link.
+
+See [docs/GARMIN_AUTH.md](docs/GARMIN_AUTH.md) for the phone page, Docker mounts, and troubleshooting.
 
 ### Strava Authentication (OAuth2)
 
