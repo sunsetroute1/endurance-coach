@@ -40,7 +40,7 @@ if (-not (Test-Path $dockerDesktop)) {
     Write-Host "ERROR: Docker Desktop not found at $dockerDesktop" -ForegroundColor Red
     exit 1
 }
-Start-Process -FilePath $dockerDesktop -WindowStyle Hidden
+Start-Process -FilePath $dockerDesktop -ArgumentList '-Autostart' -WindowStyle Hidden
 
 $deadline = (Get-Date).AddMinutes(4)
 Write-Step 'Waiting for Docker daemon...'

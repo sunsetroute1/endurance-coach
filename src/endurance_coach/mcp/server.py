@@ -156,7 +156,7 @@ def _container(ctx: Context) -> Container:
     return ctx.request_context.lifespan_context.container
 
 
-async def _with_scope(
+async def _with_scope[T](
     ctx: Context,
     tool_name: str,
     call: Callable[[MCPRequestScope], Awaitable[T]],
@@ -373,7 +373,10 @@ async def get_weekly_aggregates(
 
 @mcp.tool(**_TOOL_KW)
 async def get_top_trail_efforts(
-    days: Annotated[int, Field(description="Lookback window when start/end dates omitted.", ge=1)] = 90,
+    days: Annotated[
+        int,
+        Field(description="Lookback window when start/end dates omitted.", ge=1),
+    ] = 90,
     start_date: Annotated[
         str | None,
         Field(default=None, description="Optional range start YYYY-MM-DD."),
@@ -435,6 +438,20 @@ async def get_training_readiness(
 
 
 @mcp.tool(**_TOOL_KW)
+async def get_running_training_plan(ctx: Context) -> dict[str, object]:
+    """Return the active Garmin running plan and this week's workouts.
+
+    Garmin Coach open-loop plans include the current week only. Workout
+    steps are not on that payload.
+    """
+    return await _with_scope(
+        ctx,
+        "get_running_training_plan",
+        lambda scope: scope.service.get_running_training_plan(scope.user_id),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
 async def get_recovery_state(ctx: Context) -> dict[str, object]:
     """Return recovery score, fatigue, sleep debt, and HRV deviation."""
     return await _with_scope(
@@ -465,6 +482,229 @@ async def get_injury_risk(ctx: Context) -> dict[str, object]:
 
 
 @mcp.tool(**_TOOL_KW)
+async def get_garmin_performance(
+    days: Annotated[
+        int,
+        Field(
+            description="Calendar days to include ending today in the app timezone (default 28).",
+            ge=1,
+            le=365,
+        ),
+    ] = 28,
+    *,
+    ctx: Context,
+) -> dict[str, object]:
+    """Return stored Garmin Connect performance metrics (raw reads), not coaching scores.
+
+    Data comes from persisted Garmin sync payloads only; nothing is recomputed here.
+    Use only fields present in the response. Missing or empty sections mean the watch
+    did not supply that metric in the stored sync.
+
+    Often empty on Garmin Enduro 3: hill score, running economy, stamina curve, power
+    curve, and weight.
+
+    There is no separate time series for stamina zones, grade-adjusted pace workout
+    targets, or Garmin Epic aggregation.
+
+    Per-activity grade-adjusted pace and stamina fields already live on activity
+    summaries (avgGradeAdjustedSpeed, beginPotentialStamina, endPotentialStamina,
+    minAvailableStamina). Use get_recent_activities or get_detailed_activity for those.
+
+    Do not invent or infer values that are not returned.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_performance",
+        lambda scope: scope.service.get_garmin_performance(scope.user_id, days=days),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_performance_trends(
+    window_days: Annotated[
+        int,
+        Field(
+            description="Comparison window in calendar days. Allowed: 7, 28, 90, 180, 365.",
+            ge=7,
+            le=365,
+        ),
+    ] = 28,
+    *,
+    ctx: Context,
+) -> dict[str, object]:
+    """Compare stored Garmin history across the current window and the previous window.
+
+    Uses persisted rows only. It does not call Garmin Connect.
+
+    Allowed windows are 7, 28, 90, 180, and 365 days. The previous period is the
+    equal-length window immediately before the current one.
+
+    Missing measurements are omitted, never filled with zero. Each block says whether
+    the value is a Garmin measurement or a calculation, and includes the sample count.
+    Percentage change is omitted when the previous value is missing or zero.
+
+    VO2 max and lactate threshold are latest-known snapshots. This tool does not
+    invent a history for them.
+
+    Grade-adjusted pace is separate from actual pace. Comparable runs match distance
+    within 15 percent and elevation gain within 25 percent, and only when both
+    activities have grade-adjusted pace.
+
+    A change or an association is not a cause.
+    """
+    if window_days not in (7, 28, 90, 180, 365):
+        raise ValueError("window_days must be one of 7, 28, 90, 180, 365")
+    return await _with_scope(
+        ctx,
+        "get_garmin_performance_trends",
+        lambda scope: scope.service.get_garmin_performance_trends(
+            scope.user_id,
+            window_days=window_days,
+        ),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_data_quality(ctx: Context) -> dict[str, object]:
+    """Explain stored Garmin coverage and why a trend may be insufficient.
+
+    Reads the local database only. It does not call Garmin Connect.
+
+    The report includes, for each stored metric, the earliest and latest day,
+    populated days, missing date ranges, and duplicate rows. Activity fields
+    show how many of the stored activities have elevation, training load,
+    grade-adjusted speed, stamina, power, cadence, heart rate, pace, and
+    temperature. HRV duplicates are split into same-value sync copies and
+    dates that really have more than one measurement. Missing HRV is not zero.
+
+    Recovery notes distinguish a metric Garmin can still return from a snapshot
+    or a field the checked activity endpoints did not contain. full_sync is a
+    365-day request. The default sync is 30 days. This report does not invent
+    the days those syncs have not stored yet.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_data_quality",
+        lambda scope: scope.service.get_garmin_data_quality(scope.user_id),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_activity_details(
+    provider_activity_id: Annotated[
+        str,
+        Field(description="Garmin activity id from get_recent_activities."),
+    ],
+    ctx: Context,
+) -> dict[str, object]:
+    """Return a decimated chart for one activity that has already been collected.
+
+    Reads the local database only. It does not call Garmin Connect. The full
+    chart stays stored. The response keeps every kth sample and does not
+    interpolate missing points. Heart rate, power, cadence, and stamina are
+    Garmin measurements. Descriptor factors are not applied.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_activity_details",
+        lambda scope: scope.service.get_garmin_activity_details(
+            scope.user_id,
+            provider_activity_id,
+        ),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_activity_efficiency(
+    provider_activity_id: Annotated[
+        str,
+        Field(description="Garmin activity id from get_recent_activities."),
+    ],
+    ctx: Context,
+) -> dict[str, object]:
+    """Separate drift, power fade, pace change, and stamina depletion.
+
+    Cardiovascular drift is reported only when heart rate changes while power,
+    or grade-adjusted speed when power is absent, stays within 5 percent.
+    A fall in heart rate beside a fall in power is power fade, not improved
+    efficiency. Speed drift is withheld when the climbing rate changes.
+    Nulls and the minute after a pause are left out of the halves.
+    Grade-adjusted speed is used only when the chart measured it.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_activity_efficiency",
+        lambda scope: scope.service.get_garmin_activity_efficiency(
+            scope.user_id,
+            provider_activity_id,
+        ),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_activity_comparison(
+    provider_activity_id: Annotated[
+        str,
+        Field(description="Garmin activity id from get_recent_activities."),
+    ],
+    ctx: Context,
+) -> dict[str, object]:
+    """Compare one collected activity with similar collected activities.
+
+    Similar means distance within 15 percent and elevation gain within 25
+    percent. Grade-adjusted speed is compared only when both charts measured it.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_activity_comparison",
+        lambda scope: scope.service.get_garmin_activity_comparison(
+            scope.user_id,
+            provider_activity_id,
+        ),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_activity_longitudinal(ctx: Context) -> dict[str, object]:
+    """Compare stored high-resolution charts across months.
+
+    Reads the local database only. It does not call Garmin Connect and does
+    not download remaining activities.
+
+    Physiological comparisons use charts with power, grade-adjusted speed, and
+    stamina at a median interval of 5 seconds or less, and only when distance,
+    elevation, duration, and climbing rate all agree. Heart rate is compared
+    only when power and grade-adjusted speed stay within 5 percent, so an
+    easier pace is not read as improved fitness. A supported change needs at
+    least four comparable runs in at least two months.
+
+    Drift reasons and sample-quality flags are returned unchanged. A lower
+    heart rate is not labeled as improved efficiency. Actual speed is not
+    used as grade-adjusted speed. Missing values are omitted.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_activity_longitudinal",
+        lambda scope: scope.service.get_garmin_activity_longitudinal(scope.user_id),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
+async def get_garmin_activity_backfill_status(ctx: Context) -> dict[str, object]:
+    """Report activity-chart coverage, failures, and remaining outdoor runs.
+
+    Reads the local database only. Eligible activities are Garmin runs and
+    trail runs of at least 20 minutes. Collected and unsupported activities
+    are not requested again. Failed activities can be retried.
+    """
+    return await _with_scope(
+        ctx,
+        "get_garmin_activity_backfill_status",
+        lambda scope: scope.service.get_garmin_activity_backfill_status(scope.user_id),
+    )
+
+
+@mcp.tool(**_TOOL_KW)
 async def get_daily_garmin_readiness(
     target_date: Annotated[
         str | None,
@@ -476,7 +716,13 @@ async def get_daily_garmin_readiness(
     *,
     ctx: Context,
 ) -> dict[str, object]:
-    """Return daily Garmin readiness metrics when required morning fields are present."""
+    """Return daily Garmin readiness for one America/Denver calendar date.
+
+    Sleep is the same row get_sleep_summary returns for that date. A required
+    metric from another date is listed in stale_fields with its source date
+    and is not copied into today's values. status is partial when a required
+    target-day metric is missing.
+    """
     return await _with_scope(
         ctx,
         "get_daily_garmin_readiness",

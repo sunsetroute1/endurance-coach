@@ -20,6 +20,7 @@ from folder_tags import (  # noqa: E402
     in_unknown_album_folder,
     is_junk,
     merge_unknown_album_metadata,
+    title_from_path_stem,
 )
 
 
@@ -63,6 +64,14 @@ def apply_folder_tags(item, libdir, junk_album_patterns, junk_artist_patterns, l
             changed = True
         if is_junk(item.artist, junk_artist_patterns):
             item.artist = folder_artist
+            changed = True
+
+    junk_title_patterns = compile_junk()
+    if is_junk(item.title, junk_title_patterns):
+        recovered = title_from_path_stem(path, junk_title_patterns)
+        if recovered and item.title != recovered:
+            item.title = recovered
+            log.info("title from filename: {.title}", item)
             changed = True
 
     return changed

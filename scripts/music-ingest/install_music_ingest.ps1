@@ -28,10 +28,10 @@ Write-Host "==> Installing beets config"
 New-Item -ItemType Directory -Force -Path $BeetsConfigDir | Out-Null
 Copy-Item -Path $BeetsTemplate -Destination $BeetsConfig -Force
 $pluginPath = (Join-Path $IngestRoot "plugins") -replace '\\', '/'
-[System.IO.File]::WriteAllText(
-    $BeetsConfig,
-    ((Get-Content $BeetsConfig -Raw) -replace 'MUSIC_INGEST_PLUGINPATH', $pluginPath).TrimEnd() + [Environment]::NewLine,
-    [System.Text.UTF8Encoding]::new($false))
+$beetsContent = ((Get-Content $BeetsConfig -Raw) -replace 'MUSIC_INGEST_PLUGINPATH', $pluginPath).TrimEnd()
+# Beets rewrite uses literal replacements; legacy rules with ": \1" corrupt titles to "\1".
+$beetsContent = $beetsContent -replace '(?m)^  (?:artist|album|albumartist|title) \^\d+\\\.?\s+\(\.\+\)\$: \\1\r?\n', ''
+[System.IO.File]::WriteAllText($BeetsConfig, $beetsContent + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
 function Set-BeetsLastFmKey {
     param([string]$ConfigPath, [string]$ApiKey)
@@ -144,6 +144,13 @@ $NavidromeConfig = if ((Test-Path $DockerMarker) -and (Test-Path $DockerNavidrom
 
 function Update-NavidromeConfigContent([string]$Content, [string]$TemplatePath) {
     $content = $Content -replace 'MusicFolder = "E:\\Music\\Library"', 'MusicFolder = "E:\\Music"'
+    # Navidrome 0.63+ uses [Scanner].Schedule; top-level ScanSchedule is ignored.
+    $content = $content -replace '(?m)^ScanSchedule\s*=.*\r?\n', ''
+    if ($content -match '(?m)^\[Scanner\]' -and $content -notmatch '(?m)^\s*Schedule\s*=') {
+        $content = $content -replace '(?m)^(\[Scanner\]\s*\r?\n)', "`$1Schedule = `"@every 5m`"`n"
+    } elseif ($content -notmatch '(?m)^\[Scanner\]') {
+        $content = $content.TrimEnd() + "`n`n[Scanner]`nSchedule = `"@every 5m`"`nPurgeMissing = `"full`"`n"
+    }
     if (Test-Path $TemplatePath) {
         $template = Get-Content $TemplatePath -Raw
         if ($template -match '(?m)^Agents = "([^"]+)"') {

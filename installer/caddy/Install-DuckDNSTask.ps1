@@ -34,16 +34,53 @@ try {
 `$log     = '$caddyRoot\duckdns.log'
 `$wanName = '$wanName'
 
-function Log(`$m){ "`$(Get-Date -Format s) `$m" | Add-Content -Path `$log }
+function Log(`$m) { "`$(Get-Date -Format s) `$m" | Add-Content -Path `$log }
+
+function Get-PublicIp {
+    `$bind = `$null
+    try {
+        `$bind = Get-NetIPAddress -InterfaceAlias `$wanName -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object { `$_.IPAddress -notlike '169.254.*' } |
+            Select-Object -ExpandProperty IPAddress -First 1
+    } catch {}
+    if (-not `$bind) { return `$null }
+    `$curl = Join-Path `$env:SystemRoot 'System32\curl.exe'
+    foreach (`$url in @('https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com')) {
+        try {
+            `$ip = (& `$curl --interface `$bind -4 -sS --max-time 15 `$url).ToString().Trim()
+            if (`$ip -match '^\d{1,3}(\.\d{1,3}){3}$') { return `$ip }
+        } catch {}
+    }
+    return `$null
+}
+
+function Get-DnsIp([string]`$HostName) {
+    try {
+        return (Resolve-DnsName -Name `$HostName -Type A -Server 1.1.1.1 -DnsOnly -ErrorAction Stop |
+            Where-Object { `$_.Type -eq 'A' } |
+            Select-Object -ExpandProperty IPAddress -First 1)
+    } catch { return `$null }
+}
 
 try {
     `$def = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1
     `$egress = if (`$def) { (Get-NetAdapter -InterfaceIndex `$def.ifIndex -ErrorAction SilentlyContinue).Name } else { `$null }
+    `$hostname = "`$domain.duckdns.org"
+    `$publicIp = Get-PublicIp
     if (`$egress -ne `$wanName) {
-        Log "SKIP egress=`$egress (VPN active or non-WAN egress); DuckDNS left unchanged"
+        Log "SKIP egress=`$egress public=`$publicIp dns=`$(Get-DnsIp `$hostname) (VPN active; DuckDNS left unchanged)"
+    } elseif (-not `$publicIp) {
+        Log "SKIP egress=`$egress public=none (no WAN address via `$wanName; DuckDNS left unchanged)"
     } else {
-        `$resp = (Invoke-RestMethod -Uri "https://www.duckdns.org/update?domains=`$domain&token=`$token&ip=" -TimeoutSec 25)
-        Log ("`$(`"`$resp`").Trim()) egress=`$egress"
+        `$uri = "https://www.duckdns.org/update?domains=`$domain&token=`$token&ip=`$publicIp&verbose=true"
+        `$resp = (Invoke-RestMethod -Uri `$uri -TimeoutSec 25).ToString().Trim()
+        Start-Sleep -Seconds 2
+        `$dnsIp = Get-DnsIp `$hostname
+        if (`$dnsIp -and `$publicIp -and `$dnsIp -ne `$publicIp) {
+            Log "WARN resp=`$resp egress=`$egress public=`$publicIp dns=`$dnsIp (mismatch)"
+        } else {
+            Log "OK resp=`$resp egress=`$egress public=`$publicIp dns=`$dnsIp"
+        }
     }
     `$lines = Get-Content `$log -ErrorAction SilentlyContinue
     if (`$lines.Count -gt 500) { `$lines | Select-Object -Last 300 | Set-Content `$log }

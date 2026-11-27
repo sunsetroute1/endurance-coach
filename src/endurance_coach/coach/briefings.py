@@ -78,7 +78,7 @@ def build_explain_today(
         f"As of {as_of.date().isoformat()}, chronic load (CTL) is {ctl:.1f}, "
         f"acute load (ATL) is {atl:.1f}, and form (TSB) is {tsb:+.1f}. "
         f"Recovery score is {recovery_score:.0f}/100 with {sleep_debt:.1f}h sleep debt. "
-        f"Fatigue score is {fatigue_score:.0f}/100."
+        f"Calculated fatigue is {fatigue_score:.0f}/100, where higher means more accumulated fatigue."
     )
     if injury_level:
         explanation += f" Injury risk is {injury_level} ({injury_score:.0f}/100)."

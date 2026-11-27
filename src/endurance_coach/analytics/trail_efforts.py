@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from endurance_coach.db.models import ActivityRecord
+from endurance_coach.timezone_util import as_local
 
 METERS_TO_MILES = 0.000621371
 METERS_TO_FEET = 3.28084
@@ -68,17 +69,23 @@ def compute_rank_score(activity: ActivityRecord, rank_by: TrailRankBy) -> float:
     return round(vert_per_km * (reference_pace / pace), 2)
 
 
-def trail_effort_to_dict(activity: ActivityRecord, *, rank_by: TrailRankBy) -> dict[str, Any]:
+def trail_effort_to_dict(
+    activity: ActivityRecord,
+    *,
+    rank_by: TrailRankBy,
+    timezone: str = "America/Denver",
+) -> dict[str, Any]:
     elevation_m = activity.elevation_gain_meters or 0.0
     distance_m = _distance_meters(activity)
     duration_h = round(_duration_hours(activity), 2)
     pace = _pace_sec_per_km(activity)
     rank_score = compute_rank_score(activity, rank_by)
+    started = as_local(activity.started_at, timezone)
 
     return {
         "id": str(activity.id),
         "provider_activity_id": activity.provider_record_id,
-        "date": activity.started_at.date().isoformat(),
+        "date": started.date().isoformat(),
         "name": activity.name,
         "type": activity.activity_type,
         "distance_mi": round(distance_m * METERS_TO_MILES, 2) if distance_m else 0.0,
@@ -98,9 +105,13 @@ def rank_trail_efforts(
     *,
     rank_by: TrailRankBy,
     limit: int = 10,
+    timezone: str = "America/Denver",
 ) -> list[dict[str, Any]]:
     trails = [activity for activity in activities if is_trail_activity(activity)]
     scored = [(compute_rank_score(activity, rank_by), activity) for activity in trails]
     scored.sort(key=lambda pair: pair[0], reverse=True)
     top = scored[: max(limit, 1)]
-    return [trail_effort_to_dict(activity, rank_by=rank_by) for _score, activity in top]
+    return [
+        trail_effort_to_dict(activity, rank_by=rank_by, timezone=timezone)
+        for _score, activity in top
+    ]

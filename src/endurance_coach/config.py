@@ -6,6 +6,8 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from endurance_coach.timezone_util import server_timezone_name
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -49,6 +51,8 @@ class Settings(BaseSettings):
     garmin_sync_days: int = 30
     garmin_backfill_delay_seconds: float = 1.5
     garmin_backfill_batch_size: int = 10
+    garmin_activity_detail_maxchart: int = 20000
+    garmin_activity_detail_pause_seconds: float = 1.0
 
     strava_client_id: str = ""
     strava_client_secret: str = ""
@@ -64,10 +68,18 @@ class Settings(BaseSettings):
 
     public_base_url: str = "http://127.0.0.1:8000"
     default_user_email: str = "athlete@localhost"
-    app_timezone: str = "America/Denver"
+    # Empty means the timezone of the machine running this process.
+    app_timezone: str = ""
     # Comma-separated extra Origins allowed by MCP DNS-rebinding protection
     # (in addition to the public host and built-in connector Origins).
     mcp_allowed_origins: str = ""
+
+    @field_validator("app_timezone", mode="before")
+    @classmethod
+    def _default_app_timezone(cls, value: object) -> str:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return server_timezone_name()
+        return str(value).strip()
 
     @field_validator("public_base_url", mode="before")
     @classmethod

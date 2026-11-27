@@ -23,3 +23,23 @@ $args = @(
 )
 
 & $VenvPython @args
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+$RescanScript = Join-Path $PSScriptRoot "rescan_navidrome.ps1"
+$DockerMarker = "C:\ProgramData\docker\media-stack\music-active.marker"
+if ((Test-Path $RescanScript) -and (Test-Path $DockerMarker)) {
+    try {
+        $null = Invoke-RestMethod -Uri "http://127.0.0.1:4533/ping" -TimeoutSec 3
+        Write-Host "Triggering Navidrome incremental rescan after beets import..."
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $RescanScript -Incremental
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Navidrome incremental rescan failed with exit code $LASTEXITCODE"
+        }
+    } catch {
+        Write-Warning "Navidrome not reachable; skipped post-import rescan"
+    }
+}
+
+exit 0

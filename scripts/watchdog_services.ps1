@@ -118,8 +118,12 @@ if (-not $apiUp -or -not $mcpUp) {
 }
 
 # If API was just restarted, catch up a missed Garmin sync (e.g. PC asleep at 9 AM).
+# ~/.endurance-coach/garmin-auth.paused is written on a 401 or 429 and cleared by garmin_auth.py.
 $SyncLog = Join-Path $LogDir "sync-pipeline.log"
-if (Test-Path $SyncLog) {
+$pauseFile = Join-Path $env:USERPROFILE ".endurance-coach\garmin-auth.paused"
+if (Test-Path $pauseFile) {
+    Write-Log "Garmin sync paused until garmin_auth.py succeeds ($pauseFile)"
+} elseif (Test-Path $SyncLog) {
     $lastComplete = Select-String -Path $SyncLog -Pattern "Pipeline complete\." | Select-Object -Last 1
     $staleSync = $true
     if ($lastComplete -and $lastComplete.Line -match "^(\S+)") {

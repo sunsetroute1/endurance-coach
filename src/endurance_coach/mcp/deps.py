@@ -14,11 +14,15 @@ from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.coach.service import build_coach_service
 from endurance_coach.collector.providers.garmin import GarminTokenStore
 from endurance_coach.collector.providers.garmin.client import GarminClient
-from endurance_coach.collector.repositories import SqlAlchemyUserRepository
+from endurance_coach.collector.repositories import (
+    SqlAlchemyProviderConnectionRepository,
+    SqlAlchemyUserRepository,
+)
 from endurance_coach.di.container import Container
 from endurance_coach.domain.enums import DataProviderType
 from endurance_coach.mcp.logging_utils import log_event, logger
 from endurance_coach.mcp.service import CoachMCPService
+from endurance_coach.timezone_util import usable_timezone
 
 
 @dataclass
@@ -47,6 +51,12 @@ async def mcp_request_scope(container: Container) -> AsyncGenerator[MCPRequestSc
                 container.settings,
             )
             token_store = GarminTokenStore(container.settings.garmin_token_path)
+            connection_repo = SqlAlchemyProviderConnectionRepository(session)
+            connection = await connection_repo.get_connection(user.id, DataProviderType.GARMIN)
+            stored_timezone = None
+            if connection is not None and connection.metadata_json:
+                stored_timezone = connection.metadata_json.get("timezone")
+            app_timezone = usable_timezone(stored_timezone) or container.settings.app_timezone
             lap_fetcher = None
             try:
                 if await token_store.is_authenticated(user.id, DataProviderType.GARMIN):
@@ -66,7 +76,7 @@ async def mcp_request_scope(container: Container) -> AsyncGenerator[MCPRequestSc
                 analytics_repo,
                 metric_engine,
                 coach_service,
-                app_timezone=container.settings.app_timezone,
+                app_timezone=app_timezone,
                 lap_fetcher=lap_fetcher,
             )
             log_event("db_session_open", user_id=str(user.id))

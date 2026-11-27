@@ -1,7 +1,12 @@
 """Tests for Garmin normalizers."""
 
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 from tests.fixtures.garmin_payloads import (
+    FETCHED_AT,
+    USER_ID,
     activity_payload,
     body_battery_payload,
     hrv_payload,
@@ -11,6 +16,8 @@ from tests.fixtures.garmin_payloads import (
     stress_payload,
 )
 
+from endurance_coach.domain.enums import DataProviderType, ResourceType
+from endurance_coach.domain.models import RawPayload
 from endurance_coach.processor.providers.garmin.normalizers import (
     GarminActivityNormalizer,
     GarminBodyBatteryNormalizer,
@@ -19,7 +26,9 @@ from endurance_coach.processor.providers.garmin.normalizers import (
     GarminSleepNormalizer,
     GarminStepsNormalizer,
     GarminStressNormalizer,
+    UnmeasuredPayload,
 )
+from endurance_coach.timezone_util import server_timezone_name
 
 
 @pytest.mark.asyncio
@@ -29,6 +38,8 @@ async def test_normalize_activity() -> None:
 
     assert result.name == "Treadmill Running"
     assert result.activity_type == "treadmill_running"
+    local = datetime(2026, 7, 15, 8, 20, 26, tzinfo=ZoneInfo(server_timezone_name()))
+    assert result.started_at == local.astimezone(UTC)
     assert result.duration_seconds == 3000
     assert result.distance_meters == 8170.6
     assert result.avg_heart_rate == 123
@@ -58,6 +69,7 @@ async def test_normalize_hrv() -> None:
     result = await GarminHRVNormalizer().normalize(hrv_payload())
     assert result.hrv_ms == 48.0
     assert result.resting_heart_rate == 52
+    assert result.baseline_ms == 50.0
 
 
 @pytest.mark.asyncio
@@ -120,3 +132,77 @@ async def test_normalize_steps() -> None:
     assert result.total_steps == 4207
     assert result.step_goal == 20000
     assert result.distance_meters == 3218.5
+
+
+def _payload(resource: ResourceType, body: dict) -> RawPayload:
+    return RawPayload(
+        id=USER_ID,
+        user_id=USER_ID,
+        provider=DataProviderType.GARMIN,
+        resource_type=resource,
+        provider_record_id="2026-11-15",
+        content_hash="hash",
+        fetched_at=FETCHED_AT,
+        payload=body,
+    )
+
+
+@pytest.mark.asyncio
+async def test_hrv_baseline_is_the_middle_of_the_balanced_band() -> None:
+    payload = _payload(
+        ResourceType.HRV,
+        {
+            "date": "2026-11-15",
+            "data": {
+                "hrvSummary": {
+                    "lastNightAvg": 100,
+                    "status": "UNBALANCED",
+                    "baseline": {"balancedLow": 30, "balancedUpper": 62},
+                }
+            },
+        },
+    )
+    result = await GarminHRVNormalizer().normalize(payload)
+    assert result.hrv_ms == 100
+    assert result.baseline_ms == 46
+
+
+@pytest.mark.asyncio
+async def test_readiness_uses_latest_snapshot_and_garmin_factor_names() -> None:
+    payload = _payload(
+        ResourceType.TRAINING_READINESS,
+        {
+            "date": "2026-11-15",
+            "data": [
+                {
+                    "score": 36,
+                    "timestamp": "2026-11-15T21:47:22.0",
+                    "hrvFactorPercent": 46,
+                    "sleepScoreFactorPercent": 88,
+                    "recoveryTimeFactorPercent": 84,
+                },
+                {
+                    "score": 43,
+                    "timestamp": "2026-11-15T16:07:27.0",
+                    "hrvFactorPercent": 46,
+                    "sleepScoreFactorPercent": 88,
+                    "recoveryTimeFactorPercent": 99,
+                },
+            ],
+        },
+    )
+    result = await GarminReadinessNormalizer().normalize(payload)
+    assert result.readiness_score == 36
+    assert result.hrv_component == 46
+    assert result.sleep_component == 88
+    assert result.recovery_component == 84
+
+
+@pytest.mark.asyncio
+async def test_empty_sleep_is_not_stored_as_zero() -> None:
+    payload = _payload(
+        ResourceType.SLEEP,
+        {"date": "2026-11-16", "data": {"dailySleepDTO": {"sleepTimeSeconds": None}}},
+    )
+    with pytest.raises(UnmeasuredPayload):
+        await GarminSleepNormalizer().normalize(payload)

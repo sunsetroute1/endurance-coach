@@ -60,10 +60,28 @@ def morning_sync_fetched_before(
 
 
 def local_date_from_timestamp(value: datetime, timezone: str) -> date:
-    """Map a stored UTC timestamp to the athlete's local calendar date."""
+    """Map a real UTC instant to the athlete's local calendar date."""
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.astimezone(resolve_timezone(timezone)).date()
+
+
+def metric_source_date(recorded_at: datetime, timezone: str) -> date:
+    """Calendar date a stored wellness row belongs to.
+
+    Garmin daily rows are written at 00:00 UTC on the payload's local calendar
+    date. That stamp is a date label: converting it to America/Denver lands on
+    the previous evening, so an exact UTC midnight keeps the UTC date.
+
+    Any other timestamp is a real instant. Its calendar date is the local date
+    in ``timezone``, not the UTC date of the clock reading.
+    """
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=UTC)
+    utc = recorded_at.astimezone(UTC)
+    if utc.hour == utc.minute == utc.second == utc.microsecond == 0:
+        return utc.date()
+    return local_date_from_timestamp(utc, timezone)
 
 
 def in_morning_sync_window(timezone: str, *, now: datetime | None = None) -> bool:

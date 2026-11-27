@@ -38,6 +38,14 @@ function Invoke-ApiPost([string]$Path, [hashtable]$Body) {
 }
 
 try {
+    $authPause = Join-Path $env:USERPROFILE ".endurance-coach\garmin-auth.paused"
+    if (Test-Path $authPause) {
+        $reason = (Get-Content -Path $authPause -Raw).Trim()
+        Write-Both "Garmin sync is paused: $reason"
+        Write-Both "Run scripts\garmin_auth.py in this terminal first. A successful login clears the pause."
+        exit 2
+    }
+
     Write-Both "Checking API at $ApiBase..."
     $null = Invoke-RestMethod -Method GET -Uri "$ApiBase/health" -TimeoutSec 10
 

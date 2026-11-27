@@ -18,6 +18,7 @@ from endurance_coach.db.models import (
 )
 from endurance_coach.domain.models import CoachResponse
 from endurance_coach.garmin.activity_parsing import build_activity_coaching_metrics
+from endurance_coach.timezone_util import as_local
 
 __all__ = [
     "activity_to_dict",
@@ -49,14 +50,16 @@ def activity_to_summary_dict(
     activity: ActivityRecord,
     *,
     payload: dict[str, object] | None = None,
+    timezone: str = "America/Denver",
 ) -> dict[str, object]:
     """Compact activity row for multi-month MCP sweeps (no lap/time-series data)."""
+    started = as_local(activity.started_at, timezone)
     row: dict[str, object] = {
         "id": str(activity.id),
         "provider_activity_id": activity.provider_record_id,
         "name": activity.name,
-        "started_at": activity.started_at.isoformat(),
-        "date": activity.started_at.date().isoformat(),
+        "started_at": started.isoformat(),
+        "date": started.date().isoformat(),
         "type": activity.activity_type,
         "duration_s": activity.duration_seconds,
         "distance_m": activity.distance_meters,
@@ -71,14 +74,16 @@ def activity_to_dict(
     activity: ActivityRecord,
     *,
     payload: dict[str, object] | None = None,
+    timezone: str = "America/Denver",
 ) -> dict[str, object]:
+    started = as_local(activity.started_at, timezone)
     row: dict[str, object] = {
         "id": str(activity.id),
         "provider": activity.provider,
         "provider_activity_id": activity.provider_record_id,
         "name": activity.name,
         "activity_type": activity.activity_type,
-        "started_at": activity.started_at.isoformat(),
+        "started_at": started.isoformat(),
         "duration_seconds": activity.duration_seconds,
         "distance_meters": activity.distance_meters,
         "avg_heart_rate": activity.avg_heart_rate,

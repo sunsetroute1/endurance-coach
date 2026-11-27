@@ -62,11 +62,51 @@ class MCPToolRegistry(Protocol):
         target_date: date | None = None,
     ) -> dict[str, object]: ...
 
+    async def get_running_training_plan(self, user_id: UUID) -> dict[str, object]: ...
+
     async def get_recovery_state(self, user_id: UUID) -> dict[str, object]: ...
 
     async def get_weekly_load(self, user_id: UUID) -> dict[str, object]: ...
 
     async def get_injury_risk(self, user_id: UUID) -> dict[str, object]: ...
+
+    async def get_garmin_performance(
+        self,
+        user_id: UUID,
+        *,
+        days: int = 28,
+    ) -> dict[str, object]: ...
+
+    async def get_garmin_performance_trends(
+        self,
+        user_id: UUID,
+        *,
+        window_days: int = 28,
+    ) -> dict[str, object]: ...
+
+    async def get_garmin_data_quality(self, user_id: UUID) -> dict[str, object]: ...
+
+    async def get_garmin_activity_details(
+        self,
+        user_id: UUID,
+        provider_activity_id: str,
+    ) -> dict[str, object]: ...
+
+    async def get_garmin_activity_efficiency(
+        self,
+        user_id: UUID,
+        provider_activity_id: str,
+    ) -> dict[str, object]: ...
+
+    async def get_garmin_activity_comparison(
+        self,
+        user_id: UUID,
+        provider_activity_id: str,
+    ) -> dict[str, object]: ...
+
+    async def get_garmin_activity_backfill_status(self, user_id: UUID) -> dict[str, object]: ...
+
+    async def get_garmin_activity_longitudinal(self, user_id: UUID) -> dict[str, object]: ...
 
     async def generate_daily_training_plan(self, user_id: UUID) -> dict[str, object]: ...
 

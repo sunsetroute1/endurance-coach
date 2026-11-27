@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from endurance_coach.db.models import ProviderConnection, RawPayloadRecord, SyncJob, User
@@ -67,6 +67,20 @@ class SqlAlchemyProviderConnectionRepository:
 
         await self._session.flush()
         return connection
+
+    async def remember_timezone(
+        self,
+        user_id: UUID,
+        provider: DataProviderType,
+        timezone: str,
+    ) -> None:
+        connection = await self.get_connection(user_id, provider)
+        if connection is None:
+            return
+        metadata = dict(connection.metadata_json or {})
+        metadata["timezone"] = timezone
+        connection.metadata_json = metadata
+        await self._session.flush()
 
     async def get_connection(
         self,
@@ -150,6 +164,21 @@ class SqlAlchemyRawPayloadRepository:
             sync_job_id=record.sync_job_id,
         )
 
+    async def record_ids(
+        self,
+        user_id: UUID,
+        provider: str,
+        resource_type: str,
+    ) -> set[str]:
+        result = await self._session.execute(
+            select(RawPayloadRecord.provider_record_id).where(
+                RawPayloadRecord.user_id == user_id,
+                RawPayloadRecord.provider == provider,
+                RawPayloadRecord.resource_type == resource_type,
+            )
+        )
+        return set(result.scalars().all())
+
     async def get_by_hash(self, user_id: UUID, content_hash: str) -> RawPayload | None:
         result = await self._session.execute(
             select(RawPayloadRecord).where(
@@ -206,6 +235,7 @@ class SqlAlchemyRawPayloadRepository:
         ]
 
     async def mark_processed(self, payload_id: UUID) -> None:
+        """Record that a normalizer read this row. The JSON is left in place."""
         result = await self._session.execute(
             select(RawPayloadRecord).where(RawPayloadRecord.id == payload_id)
         )
@@ -214,6 +244,28 @@ class SqlAlchemyRawPayloadRepository:
             return
         record.processed_at = datetime.now(UTC)
         await self._session.flush()
+
+    async def reopen_for_reprocess(
+        self,
+        user_id: UUID,
+        *,
+        provider: DataProviderType | None = None,
+        resource_types: tuple[ResourceType, ...] | None = None,
+    ) -> int:
+        """Queue stored raw JSON for normalization again.
+
+        Does not change ``payload``. A new provider download is not required.
+        """
+        stmt = update(RawPayloadRecord).where(RawPayloadRecord.user_id == user_id)
+        if provider is not None:
+            stmt = stmt.where(RawPayloadRecord.provider == provider.value)
+        if resource_types:
+            stmt = stmt.where(
+                RawPayloadRecord.resource_type.in_([item.value for item in resource_types])
+            )
+        result = await self._session.execute(stmt.values(processed_at=None))
+        await self._session.flush()
+        return int(result.rowcount or 0)
 
     async def get_record_by_id(self, payload_id: UUID) -> RawPayloadRecord | None:
         result = await self._session.execute(
@@ -229,6 +281,11 @@ class SqlAlchemyRawPayloadRepository:
         content_hash: str,
         fetched_at: datetime | None = None,
     ) -> None:
+        """Replace a stored body with a fuller provider document.
+
+        Callers must pass the complete JSON, not a projection. Prefer inserting
+        a new row when the previous body should remain queryable.
+        """
         record = await self.get_record_by_id(payload_id)
         if record is None:
             raise ValueError(f"Raw payload not found: {payload_id}")

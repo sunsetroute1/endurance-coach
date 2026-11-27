@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from endurance_coach.api.main import app
+from endurance_coach.config import get_settings
 
 
 def test_health_endpoint() -> None:
@@ -13,7 +14,7 @@ def test_health_endpoint() -> None:
         assert data["status"] == "ok"
         assert "version" in data
         assert "meta" in data
-        assert data["meta"]["timezone"] == "America/Denver"
+        assert data["meta"]["timezone"] == get_settings().app_timezone
         assert "response_generated_at" in data["meta"]
 
 

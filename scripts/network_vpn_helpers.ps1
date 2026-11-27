@@ -74,6 +74,22 @@ function Get-PreferredLanIp {
     return $null
 }
 
+function Test-ExpressVpnServiceRunning {
+    try {
+        $svc = Get-Service -Name 'ExpressVpnService' -ErrorAction SilentlyContinue
+        return ($null -ne $svc -and $svc.Status -eq 'Running')
+    } catch {
+        return $false
+    }
+}
+
+function Test-ExpressVpnProcessesRunning {
+    return $null -ne (
+        Get-Process -Name 'expressvpn-client', 'expressvpn-service' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    )
+}
+
 function Get-VpnNetworkSnapshot {
     $wan = Get-WanAdapterName
     $defaultRoute = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
@@ -89,7 +105,10 @@ function Get-VpnNetworkSnapshot {
         $_.Name -match 'ExpressVPN|VPN|TAP|TUN|Lightway'
     })
     $tunnelUp = @($vpnAdapters | Where-Object { $_.Status -eq 'Up' }).Count -gt 0
-    $expressRunning = $null -ne (Get-Process -Name 'expressvpn-client', 'expressvpn-service' -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $expressRunning = Test-ExpressVpnProcessesRunning
+    $expressService = Test-ExpressVpnServiceRunning
+    # Closed = service down or both client/service processes gone (UI quit / app killed).
+    $expressClosed = (-not $expressService) -or (-not $expressRunning)
 
     $vpnConnected = $tunnelUp
     if (-not $vpnConnected -and $egressAdapter -and $wan) {
@@ -103,18 +122,22 @@ function Get-VpnNetworkSnapshot {
         [string]$wan
         [bool]$tunnelUp
         [string]$lanIp
+        [bool]$expressRunning
+        [bool]$expressService
     ) -join '|'
 
     return [ordered]@{
-        timestamp          = (Get-Date).ToString('o')
-        vpn_connected      = [bool]$vpnConnected
-        egress_adapter     = $egressAdapter
-        wan_adapter        = $wan
-        tunnel_up          = [bool]$tunnelUp
-        expressvpn_running = [bool]$expressRunning
-        lan_ip             = $lanIp
+        timestamp             = (Get-Date).ToString('o')
+        vpn_connected         = [bool]$vpnConnected
+        egress_adapter        = $egressAdapter
+        wan_adapter           = $wan
+        tunnel_up             = [bool]$tunnelUp
+        expressvpn_running    = [bool]$expressRunning
+        expressvpn_service    = [bool]$expressService
+        expressvpn_closed     = [bool]$expressClosed
+        lan_ip                = $lanIp
         default_route_nexthop = $defaultRoute.NextHop
-        signature          = $signature
+        signature             = $signature
     }
 }
 
@@ -191,7 +214,12 @@ function Test-LightStackHealthy {
         return $false
     }
 
-    foreach ($port in @(8191, 9696, 5030, 5432, 8000, 8080)) {
+    $ports = @(8191, 9696, 5432, 8000, 8080)
+    # slskd is stopped on purpose after it has been idle. That closed port is not an outage.
+    if (-not (Test-Path 'C:\ProgramData\slskd-idle\intentionally-stopped.marker')) {
+        $ports += 5030
+    }
+    foreach ($port in $ports) {
         if (-not (Test-PortOpen -Port $port)) {
             return $false
         }
@@ -284,7 +312,15 @@ function Set-DockerRestartCooldownNow {
 function Test-SignificantNetworkChange {
     param($Previous, $Current)
     if (-not $Previous -or -not $Current) { return $false }
-    foreach ($field in @('vpn_connected', 'egress_adapter', 'wan_adapter', 'lan_ip', 'default_route_nexthop')) {
+    foreach ($field in @(
+            'vpn_connected',
+            'egress_adapter',
+            'wan_adapter',
+            'lan_ip',
+            'default_route_nexthop',
+            'expressvpn_running',
+            'expressvpn_service'
+        )) {
         if ([string]$Previous.$field -ne [string]$Current.$field) {
             return $true
         }
@@ -292,12 +328,139 @@ function Test-SignificantNetworkChange {
     return $false
 }
 
+function Test-ExpressVpnJustClosed {
+    param($Previous, $Current)
+    if (-not $Current) { return $false }
+    $nowClosed = [bool]$Current.expressvpn_closed
+    if (-not $nowClosed) { return $false }
+    if (-not $Previous) { return $true }
+    $wasClosed = $false
+    if ($null -ne $Previous.expressvpn_closed) {
+        $wasClosed = [bool]$Previous.expressvpn_closed
+    } else {
+        $wasClosed = (-not [bool]$Previous.expressvpn_running)
+    }
+    return -not $wasClosed
+}
+
+function Get-VpnConnectTransition {
+    param($Previous, $Current)
+    if (-not $Previous -or -not $Current) { return $null }
+    $prev = [bool]$Previous.vpn_connected
+    $now = [bool]$Current.vpn_connected
+    if ($now -and -not $prev) { return 'connected' }
+    if (-not $now -and $prev) { return 'disconnected' }
+    return $null
+}
+
+function Find-ExpressVpnCtlPath {
+    foreach ($candidate in @(
+            (Join-Path ${env:ProgramFiles} 'ExpressVPN\expressvpnctl.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'ExpressVPN\expressvpnctl.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'ExpressVPN\services\expressvpnctl.exe')
+        )) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Invoke-ExpressVpnCtlSafe {
+    param([string[]]$Arguments)
+    $ctl = Find-ExpressVpnCtlPath
+    if (-not $ctl) { return $null }
+    try {
+        $output = & $ctl @Arguments 2>&1 | Out-String
+        return [ordered]@{
+            ExitCode = $LASTEXITCODE
+            Output   = $output.Trim()
+        }
+    } catch {
+        Write-VpnLog "expressvpnctl failed ($($Arguments -join ' ')): $($_.Exception.Message)" 'WARN'
+        return $null
+    }
+}
+
+function Invoke-ExpressVpnConnectHygiene {
+    # Re-assert LAN access + routes after VPN connects. Do NOT touch split-app bypass list.
+    Write-VpnLog 'VPN connected hygiene: ensure allowlan + LAN routes (bypasses left in place)'
+    $allow = Invoke-ExpressVpnCtlSafe @('set', 'allowlan', 'true')
+    if ($allow) {
+        Write-VpnLog ("expressvpnctl set allowlan true -> {0}" -f $allow.Output)
+    }
+    # Brief settle so adapters/routes exist before stack heal.
+    Start-Sleep -Seconds 5
+}
+
+function Invoke-ExpressVpnDisconnectHygiene {
+    # Disconnect-specific extras beyond shared heal + DuckDNS.
+    # LAN routes are not forced while VPN is down; Caddy/firewall run in shared heal.
+    Write-VpnLog 'VPN disconnected hygiene: shared stack heal will rebind listeners to WAN/LAN'
+}
+
+function Invoke-DuckDnsRefresh {
+    Write-VpnLog 'Refreshing DuckDNS for current public egress'
+    try {
+        Start-ScheduledTask -TaskName 'DuckDNS Updater' -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+    $duckScript = 'C:\Caddy\duckdns-update.ps1'
+    if (Test-Path $duckScript) {
+        Invoke-HiddenScript -ScriptPath $duckScript -TimeoutSec 30
+    }
+}
+
+function Repair-ExpressVpnClosed {
+    param([int]$WaitSec = 20)
+
+    Write-VpnLog 'ExpressVPN closed; attempting service/process restart' 'WARN'
+
+    try {
+        $svc = Get-Service -Name 'ExpressVpnService' -ErrorAction SilentlyContinue
+        if ($svc) {
+            if ($svc.Status -ne 'Running') {
+                Start-Service -Name 'ExpressVpnService' -ErrorAction SilentlyContinue
+                Write-VpnLog 'Started ExpressVpnService'
+            } else {
+                Restart-Service -Name 'ExpressVpnService' -Force -ErrorAction SilentlyContinue
+                Write-VpnLog 'Restarted ExpressVpnService'
+            }
+        } else {
+            Write-VpnLog 'ExpressVpnService not found' 'WARN'
+        }
+    } catch {
+        Write-VpnLog "ExpressVpnService start failed: $($_.Exception.Message)" 'WARN'
+    }
+
+    $clientCandidates = @(
+        (Join-Path ${env:ProgramFiles} 'ExpressVPN\expressvpn-ui\ExpressVPN.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'ExpressVPN\expressvpn-ui\ExpressVPN.exe'),
+        (Join-Path ${env:ProgramFiles} 'ExpressVPN\ExpressVPN.exe')
+    )
+    if (-not (Test-ExpressVpnProcessesRunning)) {
+        foreach ($exe in $clientCandidates) {
+            if (-not (Test-Path $exe)) { continue }
+            try {
+                Start-Process -FilePath $exe -WindowStyle Minimized -ErrorAction SilentlyContinue
+                Write-VpnLog "Launched ExpressVPN client: $exe"
+                break
+            } catch {
+                Write-VpnLog "ExpressVPN client launch failed: $($_.Exception.Message)" 'WARN'
+            }
+        }
+    }
+
+    Start-Sleep -Seconds $WaitSec
+    return -not (Get-VpnNetworkSnapshot).expressvpn_closed
+}
+
 function Start-DockerDesktopGentle {
     param([int]$WaitSec = 90)
 
     $dockerDesktop = Join-Path ${env:ProgramFiles} 'Docker\Docker\Docker Desktop.exe'
-    if (Test-Path $dockerDesktop) {
-        Start-Process -FilePath $dockerDesktop -WindowStyle Hidden -ErrorAction SilentlyContinue
+    $alreadyRunning = Get-Process -Name 'com.docker.backend', 'Docker Desktop' -ErrorAction SilentlyContinue
+    if (-not $alreadyRunning -and (Test-Path $dockerDesktop)) {
+        # A second Docker Desktop.exe while the backend is up signals show-dashboard and steals focus.
+        # -Autostart stays in the tray when OpenUIOnStartupDisabled is set.
+        Start-Process -FilePath $dockerDesktop -ArgumentList '-Autostart' -WindowStyle Hidden -ErrorAction SilentlyContinue
     }
 
     $deadline = (Get-Date).AddSeconds($WaitSec)
@@ -522,7 +685,13 @@ function Invoke-VpnNetworkTransitionRecovery {
 
     $prevConnected = [bool]$Previous.vpn_connected
     $nowConnected = [bool]$Current.vpn_connected
-    $transition = if ($nowConnected -and -not $prevConnected) {
+    $expressJustClosed = Test-ExpressVpnJustClosed -Previous $Previous -Current $Current
+    $connectTransition = Get-VpnConnectTransition -Previous $Previous -Current $Current
+    $transition = if ($expressJustClosed) {
+        'expressvpn-closed'
+    } elseif ($connectTransition) {
+        $connectTransition
+    } elseif ($nowConnected -and -not $prevConnected) {
         'connected'
     } elseif (-not $nowConnected -and $prevConnected) {
         'disconnected'
@@ -530,7 +699,39 @@ function Invoke-VpnNetworkTransitionRecovery {
         'changed'
     }
 
-    Write-VpnLog "VPN/network transition detected: $transition (egress=$($Current.egress_adapter), lan=$($Current.lan_ip))"
+    Write-VpnLog "VPN/network transition detected: $transition (egress=$($Current.egress_adapter), lan=$($Current.lan_ip), express_closed=$([bool]$Current.expressvpn_closed))"
+
+    if ([bool]$Current.expressvpn_closed -or $expressJustClosed) {
+        $reopened = Repair-ExpressVpnClosed -WaitSec 25
+        $Current = Get-VpnNetworkSnapshot
+        $nowConnected = [bool]$Current.vpn_connected
+        if ($reopened) {
+            Write-VpnLog 'ExpressVPN appears running again after repair'
+            # App came back; treat remaining work like a connect heal if tunnel is up.
+            if ($nowConnected -and $transition -eq 'expressvpn-closed') {
+                $transition = 'connected'
+            }
+        } else {
+            Write-VpnLog 'ExpressVPN still closed after repair; continuing stack heal' 'WARN'
+        }
+    }
+
+    # Transition-specific hygiene first (bypasses are never cleared/rewritten here).
+    if ($transition -eq 'connected' -or ($nowConnected -and $transition -eq 'changed')) {
+        Invoke-ExpressVpnConnectHygiene
+        $Current = Get-VpnNetworkSnapshot
+        $nowConnected = [bool]$Current.vpn_connected
+    }
+    if ($transition -eq 'disconnected' -or $transition -eq 'connected') {
+        # Public IP usually changes on both connect and disconnect.
+        Invoke-DuckDnsRefresh
+    }
+    if ($transition -eq 'disconnected') {
+        Invoke-ExpressVpnDisconnectHygiene
+    }
+
+    # Shared stack heal — same path for connect, disconnect, close, and generic change.
+    Write-VpnLog "Running shared stack heal for transition=$transition"
 
     $firewallScript = 'C:\ProgramData\mediapc-stack\scripts\ensure-media-stack-firewall.ps1'
     if (Test-Path $firewallScript) {
@@ -564,7 +765,7 @@ function Invoke-VpnNetworkTransitionRecovery {
         Write-VpnLog 'PostgreSQL unavailable; skipping app recovery' 'WARN'
     } elseif ($coachDocker) {
         Write-VpnLog 'Recovering coach Docker stack after network change'
-        Invoke-CoachDockerRecovery -Reason 'vpn-network' -StartupWaitSec 30 | Out-Null
+        Invoke-CoachDockerRecovery -Reason "vpn-$transition" -StartupWaitSec 30 | Out-Null
     } else {
         if (-not (Test-PortOpen 8000)) {
             $apiScript = Join-Path $PSScriptRoot 'start_api_windows.ps1'
@@ -579,17 +780,6 @@ function Invoke-VpnNetworkTransitionRecovery {
                 Write-VpnLog 'Starting MCP after network change'
                 Invoke-HiddenScript -ScriptPath $mcpScript -TimeoutSec 60
             }
-        }
-    }
-
-    if ($transition -eq 'disconnected') {
-        Write-VpnLog 'VPN disconnected; triggering DuckDNS update'
-        try {
-            Start-ScheduledTask -TaskName 'DuckDNS Updater' -ErrorAction SilentlyContinue | Out-Null
-        } catch {}
-        $duckScript = 'C:\Caddy\duckdns-update.ps1'
-        if (Test-Path $duckScript) {
-            Invoke-HiddenScript -ScriptPath $duckScript -TimeoutSec 30
         }
     }
 
@@ -612,20 +802,27 @@ function Invoke-VpnNetworkWatchdog {
     $previous = Get-VpnNetworkState
     $signatureChanged = $previous -and ([string]$previous.signature -ne [string]$current.signature)
     $significantChange = Test-SignificantNetworkChange -Previous $previous -Current $current
+    $expressJustClosed = Test-ExpressVpnJustClosed -Previous $previous -Current $current
+    $connectTransition = Get-VpnConnectTransition -Previous $previous -Current $current
     $healthCheck = if ($QuickCheck) { { Test-LightStackHealthy } } else { { Test-CoreStackHealthy } }
     $unhealthy = -not (& $healthCheck)
     $cooldownRemaining = Get-RecoveryCooldownRemainingMinutes
-    $shouldRecover = $ForceRecovery -or $significantChange -or ($unhealthy -and $cooldownRemaining -le 0)
+    # Connect, disconnect, and ExpressVPN close always heal once even if ports look healthy.
+    $shouldRecover = $ForceRecovery -or $significantChange -or $expressJustClosed -or $connectTransition `
+        -or ($unhealthy -and $cooldownRemaining -le 0)
 
     if ($QuickCheck) {
         return [ordered]@{
-            changed           = [bool]$signatureChanged
-            unhealthy         = [bool]$unhealthy
-            should_recover    = [bool]$shouldRecover
-            cooldown_minutes  = $cooldownRemaining
-            recovered         = $false
-            current           = $current
-            previous_signature = if ($previous) { $previous.signature } else { $null }
+            changed                 = [bool]$signatureChanged
+            unhealthy               = [bool]$unhealthy
+            should_recover          = [bool]$shouldRecover
+            expressvpn_closed       = [bool]$current.expressvpn_closed
+            expressvpn_just_closed  = [bool]$expressJustClosed
+            vpn_transition          = $connectTransition
+            cooldown_minutes        = $cooldownRemaining
+            recovered               = $false
+            current                 = $current
+            previous_signature      = if ($previous) { $previous.signature } else { $null }
         }
     }
 
@@ -663,12 +860,25 @@ function Invoke-VpnNetworkWatchdog {
         }
     }
 
-    $reason = if ($ForceRecovery) { 'forced' } elseif ($significantChange) { 'network-change' } else { 'unhealthy-stack' }
+    $reason = if ($ForceRecovery) {
+        'forced'
+    } elseif ($expressJustClosed) {
+        'expressvpn-closed'
+    } elseif ($connectTransition -eq 'connected') {
+        'vpn-connected'
+    } elseif ($connectTransition -eq 'disconnected') {
+        'vpn-disconnected'
+    } elseif ($significantChange) {
+        'network-change'
+    } else {
+        'unhealthy-stack'
+    }
     Write-VpnLog "Running recovery ($reason)"
 
     try {
         Invoke-VpnNetworkTransitionRecovery -Previous $previous -Current $current
         Set-RecoveryCooldownNow
+        $current = Get-VpnNetworkSnapshot
     } catch {
         Write-VpnLog "Recovery error: $($_.Exception.Message)" 'ERR'
     }
@@ -679,6 +889,8 @@ function Invoke-VpnNetworkWatchdog {
         recovered = $true
         unhealthy = [bool]$unhealthy
         reason = $reason
+        vpn_transition = $connectTransition
+        expressvpn_closed = [bool]$current.expressvpn_closed
         current = $current
         previous_signature = $previous.signature
     }
@@ -686,7 +898,13 @@ function Invoke-VpnNetworkWatchdog {
 
 function Get-VpnNetworkStatusText {
     $snap = Get-VpnNetworkSnapshot
-    $state = if ($snap.vpn_connected) { 'VPN active' } else { 'VPN inactive' }
+    $state = if ($snap.expressvpn_closed) {
+        'ExpressVPN closed'
+    } elseif ($snap.vpn_connected) {
+        'VPN active'
+    } else {
+        'VPN inactive'
+    }
     $egress = if ($snap.egress_adapter) { $snap.egress_adapter } else { 'unknown' }
     $lan = if ($snap.lan_ip) { $snap.lan_ip } else { 'none' }
     return "$state | egress=$egress | lan=$lan"

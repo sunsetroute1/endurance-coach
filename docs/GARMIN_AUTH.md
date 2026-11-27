@@ -88,14 +88,22 @@ Response includes `mfa_note`, `setup_command`, `verify_command`, and `reauth_com
 curl -X POST https://example.duckdns.org/api/v1/sync/garmin
 ```
 
+The extra performance, device, and solar reads are described in [GARMIN_METRICS.md](GARMIN_METRICS.md).
+
 ---
+
+## Sign in from your phone
+
+When Garmin rejects the saved token, the sync alert includes a sign-in link. Open it on your phone, enter the Garmin email and password, then the verification code if Garmin asks for one. The password is sent only for that sign-in and is not stored. Leave the server VPN off until the page says you are signed in.
+
+The link stays valid for 12 hours. The desktop shortcut **Garmin Login** does the same sign-in when you are at the server.
 
 ## Token Refresh (~6 months)
 
-When tokens expire or you change your Garmin password:
+When tokens expire or you change your Garmin password, use the phone link above or:
 
 ```bash
-uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-auth --force-reauth
+python scripts/garmin_auth.py
 ```
 
 Enter MFA again when prompted. No endurance-coach code changes needed.
@@ -138,11 +146,11 @@ Prefer host-side auth and volume mount — simpler and MFA-friendly.
 
 - **Never** put `GARMIN_PASSWORD` in `.env` or Docker Compose for production
 - Tokens in `~/.garminconnect` are the credential — treat like a password
-- Mount tokens **read-only** into containers (`:ro`)
+- The API container can write `~/.garminconnect` so a phone sign-in can save a new token. The MCP container still mounts that directory read-only.
 - This app stores **no** Garmin passwords in PostgreSQL
 
 ---
 
 ## What We Deliberately Don't Build
 
-Reimplementing Garmin OAuth + 2FA inside endurance-coach would duplicate [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) (700+ stars, MFA-aware, actively maintained). The architecture keeps auth operator-managed and the app token-only.
+The phone page and `scripts/garmin_auth.py` both use the installed `garminconnect` login. The app does not store the Garmin password and does not implement its own OAuth server.

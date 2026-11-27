@@ -63,15 +63,75 @@ def test_sleep_debt() -> None:
     assert debt == 2.0
 
 
+def test_sleep_debt_ignores_unmeasured_nights() -> None:
+    end = date(2026, 7, 14)
+    sleep = {end: 0, end - timedelta(days=1): 7 * 3600}
+    debt = compute_sleep_debt_hours(sleep, end, window_days=3)
+    assert debt == 1.0
+
+
 def test_hrv_deviation() -> None:
     assert compute_hrv_deviation_pct(45.0, 50.0) == -10.0
 
 
+def test_high_hrv_uses_garmin_factor_instead_of_deviation() -> None:
+    scored = compute_recovery_score(
+        readiness_score=36.0,
+        sleep_score=89.0,
+        hrv_deviation_pct=233.0,
+        hrv_factor=46.0,
+    )
+    homemade = compute_recovery_score(
+        readiness_score=36.0,
+        sleep_score=89.0,
+        hrv_deviation_pct=233.0,
+    )
+    assert scored == 54.9
+    assert homemade < scored
+
+
 def test_recovery_and_fatigue_scores() -> None:
     recovery = compute_recovery_score(readiness_score=80.0, sleep_score=70.0, hrv_deviation_pct=5.0)
-    fatigue = compute_fatigue_score(tsb=-10.0, sleep_debt_hours=2.0, hrv_deviation_pct=-5.0)
+    fatigue = compute_fatigue_score(
+        tsb=-10.0,
+        sleep_debt_hours=2.0,
+        hrv_deviation_pct=-5.0,
+        observed_nights=14,
+    )
     assert 0 <= recovery <= 100
-    assert 0 <= fatigue <= 100
+    assert fatigue == 29.0
+
+
+def test_fatigue_stays_below_ceiling_for_ordinary_debt() -> None:
+    # About an hour short per measured night, moderately negative form,
+    # and a high HRV reading. The old formula clamped this to 100.
+    fatigue = compute_fatigue_score(
+        tsb=-14.4,
+        sleep_debt_hours=12.3,
+        hrv_deviation_pct=233.0,
+        observed_nights=13,
+    )
+    assert 40 < fatigue < 50
+
+
+def test_fatigue_reaches_ceiling_only_when_each_input_is_extreme() -> None:
+    fatigue = compute_fatigue_score(
+        tsb=-30.0,
+        sleep_debt_hours=28.0,
+        hrv_deviation_pct=-25.0,
+        observed_nights=14,
+    )
+    assert fatigue == 100.0
+
+
+def test_fresh_athlete_has_no_fatigue() -> None:
+    fatigue = compute_fatigue_score(
+        tsb=15.0,
+        sleep_debt_hours=0.0,
+        hrv_deviation_pct=5.0,
+        observed_nights=14,
+    )
+    assert fatigue == 0.0
 
 
 def test_injury_risk_assessment() -> None:

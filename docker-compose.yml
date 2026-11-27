@@ -96,7 +96,7 @@ services:
 
     volumes:
 
-      - ${USERPROFILE}/.garminconnect:/root/.garminconnect:ro
+      - ${USERPROFILE}/.garminconnect:/root/.garminconnect
 
       - ${USERPROFILE}/.endurance-coach:/root/.endurance-coach
 

@@ -92,17 +92,35 @@ def estimate_activity_load(
     return duration_seconds / 60.0
 
 
+def compute_sleep_debt(
+    sleep_by_date: dict[date, int],
+    end_date: date,
+    window_days: int = 14,
+) -> tuple[float, int]:
+    """Hours short of 8h, and how many nights had a measured duration.
+
+    A missing night or a 0-second row is unmeasured. It is left out of the
+    debt and out of the night count, instead of counting as eight hours missed.
+    """
+    debt_seconds = 0
+    nights = 0
+    for offset in range(window_days):
+        day = end_date - timedelta(days=offset)
+        actual = sleep_by_date.get(day)
+        if actual is None or actual <= 0:
+            continue
+        nights += 1
+        debt_seconds += max(0, TARGET_SLEEP_SECONDS - actual)
+    return debt_seconds / 3600.0, nights
+
+
 def compute_sleep_debt_hours(
     sleep_by_date: dict[date, int],
     end_date: date,
     window_days: int = 14,
 ) -> float:
-    debt_seconds = 0
-    for offset in range(window_days):
-        day = end_date - timedelta(days=offset)
-        actual = sleep_by_date.get(day, 0)
-        debt_seconds += max(0, TARGET_SLEEP_SECONDS - actual)
-    return debt_seconds / 3600.0
+    hours, _nights = compute_sleep_debt(sleep_by_date, end_date, window_days)
+    return hours
 
 
 def compute_hrv_deviation_pct(hrv_ms: float, baseline_ms: float | None) -> float:
@@ -116,17 +134,26 @@ def compute_recovery_score(
     readiness_score: float | None,
     sleep_score: float | None,
     hrv_deviation_pct: float,
+    hrv_factor: float | None = None,
 ) -> float:
     components: list[float] = []
     if readiness_score is not None:
         components.append(readiness_score * 0.4)
     if sleep_score is not None:
         components.append(sleep_score * 0.3)
-    hrv_component = max(0.0, min(100.0, 50.0 + hrv_deviation_pct))
+    if hrv_factor is not None:
+        # Garmin's own HRV factor. A night above the balanced band is not a bonus.
+        hrv_component = max(0.0, min(100.0, hrv_factor))
+    else:
+        hrv_component = max(0.0, min(100.0, 100.0 - abs(hrv_deviation_pct)))
     components.append(hrv_component * 0.3)
     if not components:
         return 50.0
     return max(0.0, min(100.0, sum(components)))
+
+
+def _clamp_score(value: float) -> float:
+    return max(0.0, min(100.0, value))
 
 
 def compute_fatigue_score(
@@ -134,9 +161,27 @@ def compute_fatigue_score(
     tsb: float,
     sleep_debt_hours: float,
     hrv_deviation_pct: float,
+    observed_nights: int = 14,
 ) -> float:
-    score = 50.0 - (tsb * 1.5) + (sleep_debt_hours * 4.0) + max(0.0, -hrv_deviation_pct) * 0.4
-    return max(0.0, min(100.0, score))
+    """Higher means more accumulated fatigue, on a 0-100 scale.
+
+    Load, sleep, and HRV are scaled separately and then blended. A single
+    ordinary input cannot pin the result at 100.
+
+    Load is 0 at a TSB of +10 and 100 at a TSB of -30.
+    Sleep is the average shortfall on nights with a measured duration.
+    Two hours under 8h per such night is 100.
+    HRV adds fatigue only when it is below baseline. A 25% drop is 100.
+    A high reading does not raise or lower the score.
+    """
+    load_fatigue = _clamp_score((10.0 - tsb) / 40.0 * 100.0)
+    if observed_nights > 0:
+        mean_shortfall = max(0.0, sleep_debt_hours) / observed_nights
+        sleep_fatigue = _clamp_score(mean_shortfall / 2.0 * 100.0)
+    else:
+        sleep_fatigue = 0.0
+    hrv_fatigue = _clamp_score(max(0.0, -hrv_deviation_pct) / 25.0 * 100.0)
+    return _clamp_score(0.45 * load_fatigue + 0.35 * sleep_fatigue + 0.20 * hrv_fatigue)
 
 
 def compute_aerobic_decoupling_pct(early_hr: float, late_hr: float) -> float:

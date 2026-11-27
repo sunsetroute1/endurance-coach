@@ -1,0 +1,40 @@
+# Runs after Cursor exits: move globalStorage to D: via junction, then relaunch Cursor.
+$ErrorActionPreference = 'Stop'
+$RelocateScript = 'C:\Users\adminnie\Projects\endurance-coach\scripts\relocate_c_drive_to_d.ps1'
+$CursorExe = 'C:\Users\adminnie\AppData\Local\Programs\cursor\Cursor.exe'
+$Log = 'D:\Archive\c-drive-cleanup\cursor-relocate.log'
+
+function Write-Log([string]$Message) {
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
+    Add-Content -Path $Log -Value $line -Encoding UTF8
+}
+
+try {
+    New-Item -ItemType Directory -Path (Split-Path $Log -Parent) -Force | Out-Null
+    Write-Log 'Cursor cache relocation starting in 10 seconds...'
+    Start-Sleep -Seconds 10
+
+    Write-Log 'Stopping Cursor processes...'
+    Get-Process -Name 'Cursor', 'cursor' -ErrorAction SilentlyContinue | Stop-Process -Force
+    for ($i = 0; $i -lt 30; $i++) {
+        $procs = Get-Process -Name 'Cursor', 'cursor' -ErrorAction SilentlyContinue
+        if (-not $procs) { break }
+        Start-Sleep -Seconds 2
+    }
+    Get-Process -Name 'Cursor', 'cursor' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 3
+
+    Write-Log 'Running CursorCache relocation...'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $RelocateScript -Phase CursorCache *>> $Log
+
+    if (-not (Test-Path $CursorExe)) {
+        throw "Cursor executable not found: $CursorExe"
+    }
+
+    Write-Log "Launching Cursor: $CursorExe"
+    Start-Process -FilePath $CursorExe -ArgumentList '"C:\Users\adminnie\Projects\endurance-coach"'
+    Write-Log 'Done.'
+} catch {
+    Write-Log "ERROR: $($_.Exception.Message)"
+    throw
+}

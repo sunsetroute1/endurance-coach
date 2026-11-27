@@ -16,6 +16,7 @@ from endurance_coach.processor.providers.garmin.normalizers import (
     GarminSleepNormalizer,
     GarminStepsNormalizer,
     GarminStressNormalizer,
+    UnmeasuredPayload,
 )
 from endurance_coach.processor.providers.strava.normalizers import StravaActivityNormalizer
 from endurance_coach.processor.providers.samsung.normalizers import (
@@ -73,6 +74,10 @@ class DefaultProcessorPipeline:
         for payload in payloads:
             try:
                 await self._process_payload(payload)
+                if payload.id is not None:
+                    await self._raw_payload_repo.mark_processed(payload.id)
+                processed += 1
+            except UnmeasuredPayload:
                 if payload.id is not None:
                     await self._raw_payload_repo.mark_processed(payload.id)
                 processed += 1

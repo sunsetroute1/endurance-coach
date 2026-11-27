@@ -106,7 +106,7 @@ curl http://127.0.0.1:8000/api/v1/server
 |------|----------|
 | `EnduranceCoachAPI` | At startup (+30s) |
 | `EnduranceCoachMCP` | At startup (+45s) |
-| `EnduranceCoachGarminSync` | Every hour on the hour |
+| `EnduranceCoachGarminSync` | Every 15 minutes. Refreshes the last 3 days; the first run of each local day refreshes 30 days |
 | `EnduranceCoachWatchdog` | Every 5 min |
 | `MusicIngestWatcher` | At startup (+90s) |
 | `MusicIngestFallbackScan` | Every 30 min |

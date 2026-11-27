@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, time
 from uuid import UUID
 
 from sqlalchemy import select
@@ -85,6 +86,9 @@ class SqlAlchemyNormalizedRecordRepository:
         )
         existing = result.scalar_one_or_none()
         if existing is not None:
+            incoming_empty = record.total_sleep_seconds <= 0 and record.sleep_score is None
+            if incoming_empty and existing.total_sleep_seconds > 0:
+                return existing
             existing.total_sleep_seconds = record.total_sleep_seconds
             existing.deep_sleep_seconds = record.deep_sleep_seconds
             existing.rem_sleep_seconds = record.rem_sleep_seconds
@@ -112,6 +116,19 @@ class SqlAlchemyNormalizedRecordRepository:
         return row
 
     async def upsert_hrv(self, record: NormalizedHRV) -> HRVRecord:
+        existing = await self._rows_recorded_on(HRVRecord, record)
+        if existing:
+            primary = existing[0]
+            primary.recorded_at = record.recorded_at
+            primary.source_payload_id = record.source_payload_id
+            primary.hrv_ms = record.hrv_ms
+            primary.resting_heart_rate = record.resting_heart_rate
+            primary.baseline_ms = record.baseline_ms
+            for extra in existing[1:]:
+                await self._session.delete(extra)
+            await self._session.flush()
+            return primary
+
         row = HRVRecord(
             user_id=record.user_id,
             provider=record.provider,
@@ -126,6 +143,20 @@ class SqlAlchemyNormalizedRecordRepository:
         return row
 
     async def upsert_readiness(self, record: NormalizedReadiness) -> TrainingReadinessRecord:
+        existing = await self._rows_recorded_on(TrainingReadinessRecord, record)
+        if existing:
+            primary = existing[0]
+            primary.recorded_at = record.recorded_at
+            primary.source_payload_id = record.source_payload_id
+            primary.readiness_score = record.readiness_score
+            primary.hrv_component = record.hrv_component
+            primary.sleep_component = record.sleep_component
+            primary.recovery_component = record.recovery_component
+            for extra in existing[1:]:
+                await self._session.delete(extra)
+            await self._session.flush()
+            return primary
+
         row = TrainingReadinessRecord(
             user_id=record.user_id,
             provider=record.provider,
@@ -140,7 +171,40 @@ class SqlAlchemyNormalizedRecordRepository:
         await self._session.flush()
         return row
 
+    async def _rows_recorded_on(
+        self,
+        model: type,
+        record: NormalizedHRV | NormalizedReadiness | NormalizedBodyBattery | NormalizedStress,
+    ) -> list:
+        day = record.recorded_at.date()
+        start = datetime.combine(day, time.min, tzinfo=UTC)
+        end = datetime.combine(day, time.max, tzinfo=UTC)
+        result = await self._session.execute(
+            select(model)
+            .where(
+                model.user_id == record.user_id,
+                model.provider == record.provider,
+                model.recorded_at >= start,
+                model.recorded_at <= end,
+            )
+            .order_by(model.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def upsert_body_battery(self, record: NormalizedBodyBattery) -> BodyBatteryRecord:
+        existing = await self._rows_recorded_on(BodyBatteryRecord, record)
+        if existing:
+            primary = existing[0]
+            primary.recorded_at = record.recorded_at
+            primary.source_payload_id = record.source_payload_id
+            primary.level = record.level
+            primary.charged = record.charged
+            primary.drained = record.drained
+            for extra in existing[1:]:
+                await self._session.delete(extra)
+            await self._session.flush()
+            return primary
+
         row = BodyBatteryRecord(
             user_id=record.user_id,
             provider=record.provider,
@@ -155,6 +219,18 @@ class SqlAlchemyNormalizedRecordRepository:
         return row
 
     async def upsert_stress(self, record: NormalizedStress) -> StressRecord:
+        existing = await self._rows_recorded_on(StressRecord, record)
+        if existing:
+            primary = existing[0]
+            primary.recorded_at = record.recorded_at
+            primary.source_payload_id = record.source_payload_id
+            primary.avg_stress = record.avg_stress
+            primary.max_stress = record.max_stress
+            for extra in existing[1:]:
+                await self._session.delete(extra)
+            await self._session.flush()
+            return primary
+
         row = StressRecord(
             user_id=record.user_id,
             provider=record.provider,

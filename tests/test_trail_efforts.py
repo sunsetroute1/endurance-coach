@@ -13,6 +13,8 @@ from endurance_coach.analytics.trail_efforts import (
 
 class StubTrailActivity:
     def __init__(self, **kwargs: object) -> None:
+        self.id = kwargs.get("id", "trail-1")
+        self.provider_record_id = kwargs.get("provider_record_id", "garmin-1")
         self.name = kwargs.get("name", "Trail Run")
         self.activity_type = kwargs.get("activity_type", "trail_running")
         self.started_at = kwargs.get("started_at", datetime(2026, 7, 10, 8, tzinfo=UTC))

@@ -20,16 +20,34 @@ foreach ($path in $settingsPaths) {
     $json = $raw | ConvertFrom-Json
     $desired = -not $Disable
 
-    if ($json.AutoStart -eq $desired) {
+    $changed = $false
+    if ($json.AutoStart -ne $desired) {
+        $json | Add-Member -NotePropertyName AutoStart -NotePropertyValue $desired -Force
+        $changed = $true
+    }
+    # Keep the dashboard out of the foreground. Docker only honors this with -Autostart.
+    if (-not $Disable -and $json.OpenUIOnStartupDisabled -ne $true) {
+        $json | Add-Member -NotePropertyName OpenUIOnStartupDisabled -NotePropertyValue $true -Force
+        $changed = $true
+    }
+    if (-not $changed) {
         Write-Host "Docker settings already have AutoStart=$desired ($path)"
         $updated = $true
         continue
     }
 
-    $json.AutoStart = $desired
     $json | ConvertTo-Json -Depth 20 | Set-Content -Path $path -Encoding UTF8
-    Write-Host "Set Docker AutoStart=$desired in $path"
+    Write-Host "Updated Docker settings in $path (AutoStart=$desired, OpenUIOnStartupDisabled=$($json.OpenUIOnStartupDisabled))"
     $updated = $true
+}
+
+if (-not $Disable) {
+    $dockerDesktop = Join-Path ${env:ProgramFiles} 'Docker\Docker\Docker Desktop.exe'
+    if (Test-Path $dockerDesktop) {
+        $runCmd = "`"$dockerDesktop`" -Autostart"
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Docker Desktop' -Value $runCmd
+        Write-Host "Startup command set to: $runCmd"
+    }
 }
 
 if (-not $updated) {

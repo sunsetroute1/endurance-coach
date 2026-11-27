@@ -86,6 +86,7 @@ class StubDataRepo:
         start: int = 0,
         limit: int = 50,
         max_limit: int = 100,
+        timezone: str = "America/Denver",
     ):
         activities = list(self.activities)
         if since is not None:
@@ -120,7 +121,7 @@ class StubDataRepo:
     async def get_raw_payloads_by_ids(self, payload_ids):
         return {}
 
-    async def get_activities_between(self, user_id, start_date, end_date):
+    async def get_activities_between(self, user_id, start_date, end_date, *, timezone: str = "America/Denver"):
         return [
             activity
             for activity in self.activities
@@ -155,7 +156,14 @@ class StubDataRepo:
             return [self.readiness]
         return []
 
-    async def get_daily_activity_loads(self, user_id, end_date, *, history_days: int = 120):
+    async def get_daily_activity_loads(
+        self,
+        user_id,
+        end_date,
+        *,
+        history_days: int = 120,
+        timezone: str = "America/Denver",
+    ):
         loads: dict[date, float] = {}
         for activity in self.activities:
             day = activity.started_at.date()

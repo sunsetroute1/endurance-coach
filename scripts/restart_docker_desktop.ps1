@@ -9,7 +9,7 @@ Stop-Process -Name 'Docker Desktop', 'com.docker.backend', 'docker' -Force -Erro
 Start-Sleep -Seconds 5
 
 Write-Host 'Starting Docker Desktop...'
-Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
+Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe' -ArgumentList '-Autostart' -WindowStyle Hidden
 
 $deadline = (Get-Date).AddMinutes(3)
 while ((Get-Date) -lt $deadline) {

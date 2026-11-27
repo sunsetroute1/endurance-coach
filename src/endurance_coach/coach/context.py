@@ -55,8 +55,9 @@ class DefaultCoachContextFetcher:
             window_days=window_days,
         )
         avg_sleep_hours = None
-        if sleep_by_date:
-            avg_sleep_hours = sum(sleep_by_date.values()) / len(sleep_by_date) / 3600
+        measured_sleep = [seconds for seconds in sleep_by_date.values() if seconds > 0]
+        if measured_sleep:
+            avg_sleep_hours = sum(measured_sleep) / len(measured_sleep) / 3600
 
         hrv_records = await self._data_repo.get_hrv_in_window(
             user_id,

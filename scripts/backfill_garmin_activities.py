@@ -42,6 +42,7 @@ async def main() -> None:
                 sync_job_repo=sync_job_repo,
                 connection_repo=connection_repo,
                 sync_days=settings.garmin_sync_days,
+                timezone=settings.app_timezone,
             )
             orchestrator = DefaultSyncOrchestrator(
                 providers={garmin_provider.provider_type: garmin_provider}

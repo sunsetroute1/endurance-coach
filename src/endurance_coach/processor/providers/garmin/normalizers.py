@@ -17,8 +17,9 @@ from endurance_coach.domain.models import (
     NormalizedStress,
     RawPayload,
 )
-from endurance_coach.garmin.body_battery_parsing import extract_body_battery_day_stats
 from endurance_coach.garmin.activity_parsing import parse_running_dynamics, _merged_summary
+from endurance_coach.garmin.activity_time import parse_garmin_activity_start
+from endurance_coach.garmin.body_battery_parsing import extract_body_battery_day_stats
 from endurance_coach.processor.parsing import (
     as_float,
     as_int,
@@ -26,8 +27,11 @@ from endurance_coach.processor.parsing import (
     pace_from_distance_duration,
     pace_sec_per_km_from_speed_mps,
     parse_date,
-    parse_datetime,
 )
+
+
+class UnmeasuredPayload(Exception):
+    """Garmin returned a dated shell with no measurement. Do not store a zero."""
 
 
 class GarminActivityNormalizer:
@@ -41,11 +45,7 @@ class GarminActivityNormalizer:
         dto = detail.get("summaryDTO", detail) if isinstance(detail, dict) else {}
         merged: dict[str, Any] = {**summary, **dto}
 
-        started_at = (
-            parse_datetime(merged.get("startTimeLocal"))
-            or parse_datetime(merged.get("startTimeGMT"))
-            or parse_datetime(merged.get("beginTimestamp"))
-        )
+        started_at = parse_garmin_activity_start(merged)
         if started_at is None:
             raise ValueError("Activity payload missing start time")
 
@@ -143,6 +143,12 @@ class GarminSleepNormalizer:
             if stage_sum > 0:
                 total_sleep = stage_sum
 
+        sleep_score = as_int(dig(data, "sleepScores", "overall", "value")) or as_int(
+            dig(daily, "sleepScores", "overall", "value")
+        )
+        if total_sleep <= 0 and sleep_score is None:
+            raise UnmeasuredPayload("Sleep payload has no duration or score")
+
         if payload.id is None:
             raise ValueError("Raw payload id is required for normalization")
 
@@ -159,8 +165,7 @@ class GarminSleepNormalizer:
                 dig(data, "lightSleepSeconds") or dig(daily, "lightSleepSeconds")
             ),
             awake_seconds=as_int(dig(data, "awakeSleepSeconds") or dig(daily, "awakeSleepSeconds")),
-            sleep_score=as_int(dig(data, "sleepScores", "overall", "value"))
-            or as_int(dig(daily, "sleepScores", "overall", "value")),
+            sleep_score=sleep_score,
             source_payload_id=payload.id,
         )
 
@@ -204,9 +209,7 @@ class GarminHRVNormalizer:
             hrv_ms=hrv_ms,
             resting_heart_rate=as_int(dig(data, "restingHeartRate"))
             or as_int(dig(data, "hrvSummary", "restingHeartRate")),
-            baseline_ms=as_float(dig(data, "hrvSummary", "baseline", "balancedLow"))
-            or as_float(dig(data, "baseline", "balancedLow"))
-            or as_float(dig(data, "baselineLowUpper")),
+            baseline_ms=_hrv_baseline_ms(data),
             source_payload_id=payload.id,
         )
 
@@ -222,13 +225,7 @@ class GarminReadinessNormalizer:
         if sleep_date is None:
             raise ValueError("Readiness payload missing date")
 
-        entries = data if isinstance(data, list) else [data]
-        entry = next(
-            (item for item in entries if isinstance(item, dict) and item.get("score")),
-            None,
-        )
-        if entry is None and isinstance(data, dict):
-            entry = data
+        entry = _latest_readiness_entry(data)
         if not isinstance(entry, dict):
             raise ValueError("Readiness payload missing score entry")
 
@@ -244,10 +241,12 @@ class GarminReadinessNormalizer:
             provider=payload.provider,
             recorded_at=datetime.combine(sleep_date, time.min, tzinfo=UTC),
             readiness_score=score,
-            hrv_component=as_int(entry.get("hrvFactor") or entry.get("hrvFactorPercent")),
-            sleep_component=as_int(entry.get("sleepFactor") or entry.get("sleepFactorPercent")),
-            recovery_component=as_int(
-                entry.get("recoveryFactor") or entry.get("recoveryFactorPercent")
+            hrv_component=_first_int(entry, "hrvFactorPercent", "hrvFactor"),
+            sleep_component=_first_int(
+                entry, "sleepScoreFactorPercent", "sleepFactor", "sleepFactorPercent"
+            ),
+            recovery_component=_first_int(
+                entry, "recoveryTimeFactorPercent", "recoveryFactor", "recoveryFactorPercent"
             ),
             source_payload_id=payload.id,
         )
@@ -352,3 +351,44 @@ class GarminStepsNormalizer:
             distance_meters=as_float(data.get("totalDistanceMeters")),
             source_payload_id=payload.id,
         )
+
+
+def _hrv_baseline_ms(data: Any) -> float | None:
+    """Midpoint of Garmin's balanced band.
+
+    ``balancedLow`` is the floor of that band, not the baseline. Using it
+    makes a night above the band look like a huge positive deviation.
+    """
+    baseline = dig(data, "hrvSummary", "baseline")
+    if not isinstance(baseline, dict):
+        nested = dig(data, "baseline")
+        baseline = nested if isinstance(nested, dict) else None
+    if isinstance(baseline, dict):
+        low = as_float(baseline.get("balancedLow"))
+        high = as_float(baseline.get("balancedUpper"))
+        if low is not None and high is not None and high >= low:
+            return (low + high) / 2.0
+    return as_float(dig(data, "baselineLowUpper"))
+
+
+def _latest_readiness_entry(data: Any) -> dict[str, Any] | None:
+    entries = data if isinstance(data, list) else [data]
+    scored = [
+        item
+        for item in entries
+        if isinstance(item, dict) and (item.get("score") or item.get("readinessScore"))
+    ]
+    if not scored:
+        return data if isinstance(data, dict) else None
+    return max(
+        scored,
+        key=lambda item: str(item.get("timestamp") or item.get("timestampLocal") or ""),
+    )
+
+
+def _first_int(entry: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = as_int(entry.get(key))
+        if value is not None:
+            return value
+    return None

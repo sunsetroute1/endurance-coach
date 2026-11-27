@@ -10,11 +10,12 @@ from endurance_coach.analytics.math import (
     compute_fatigue_score,
     compute_hrv_deviation_pct,
     compute_recovery_score,
-    compute_sleep_debt_hours,
+    compute_sleep_debt,
 )
 from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.domain.enums import MetricFamily
 from endurance_coach.domain.models import MetricSnapshot, MetricValue, RecoveryMetrics
+from endurance_coach.timezone_util import calendar_date
 
 
 class RecoveryMetricsCalculator:
@@ -31,7 +32,7 @@ class RecoveryMetricsCalculator:
 
     async def compute_recovery_metrics(self, user_id: UUID, as_of: date) -> RecoveryMetrics:
         sleep_by_date = await self._data_repo.get_sleep_by_date(user_id, as_of)
-        sleep_debt_hours = compute_sleep_debt_hours(sleep_by_date, as_of)
+        sleep_debt_hours, observed_nights = compute_sleep_debt(sleep_by_date, as_of)
 
         hrv = await self._data_repo.get_latest_hrv(user_id, as_of)
         hrv_deviation = 0.0
@@ -40,11 +41,17 @@ class RecoveryMetricsCalculator:
 
         readiness = await self._data_repo.get_latest_readiness(user_id, as_of)
         sleep_score = await self._data_repo.get_latest_sleep_score(user_id, as_of)
+        hrv_factor = (
+            float(readiness.hrv_component)
+            if readiness is not None and readiness.hrv_component is not None
+            else None
+        )
 
         recovery_score = compute_recovery_score(
             readiness_score=float(readiness.readiness_score) if readiness else None,
             sleep_score=float(sleep_score) if sleep_score is not None else None,
             hrv_deviation_pct=hrv_deviation,
+            hrv_factor=hrv_factor,
         )
 
         load_metrics = await self._load_calculator.compute_load_metrics(user_id, as_of)
@@ -52,6 +59,7 @@ class RecoveryMetricsCalculator:
             tsb=load_metrics.tsb,
             sleep_debt_hours=sleep_debt_hours,
             hrv_deviation_pct=hrv_deviation,
+            observed_nights=observed_nights,
         )
 
         return RecoveryMetrics(
@@ -62,7 +70,7 @@ class RecoveryMetricsCalculator:
         )
 
     async def compute(self, user_id: UUID, as_of: datetime) -> MetricSnapshot:
-        metrics_data = await self.compute_recovery_metrics(user_id, as_of.date())
+        metrics_data = await self.compute_recovery_metrics(user_id, calendar_date(as_of))
         metrics = (
             MetricValue(
                 key="recovery_score",

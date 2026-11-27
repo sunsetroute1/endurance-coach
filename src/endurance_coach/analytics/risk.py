@@ -10,6 +10,7 @@ from endurance_coach.analytics.math import assess_injury_risk, compute_weekly_lo
 from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.domain.enums import InjuryRiskLevel, MetricFamily
 from endurance_coach.domain.models import InjuryRiskAssessment, MetricSnapshot, MetricValue
+from endurance_coach.timezone_util import calendar_date
 
 
 class InjuryRiskCalculator:
@@ -29,7 +30,7 @@ class InjuryRiskCalculator:
         user_id: UUID,
         as_of: datetime,
     ) -> InjuryRiskAssessment:
-        as_of_date = as_of.date()
+        as_of_date = calendar_date(as_of)
         loads = await self._load_calculator.compute_load_metrics(user_id, as_of_date)
         daily_loads = await self._data_repo.get_daily_activity_loads(user_id, as_of_date)
         progression = compute_weekly_load_progression(daily_loads, as_of_date)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from uuid import UUID
 
@@ -13,6 +14,65 @@ from endurance_coach.domain.enums import DataProviderType
 from endurance_coach.domain.models import ProviderSetupInstructions, TokenReference
 
 GARMIN_TOKEN_FILE = "garmin_tokens.json"
+GARMIN_AUTH_PAUSE_NAME = "garmin-auth.paused"
+
+
+def garmin_auth_pause_path() -> Path:
+    """Host and Docker share this file via the ~/.endurance-coach mount."""
+    override = os.environ.get("GARMIN_AUTH_PAUSE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".endurance-coach" / GARMIN_AUTH_PAUSE_NAME
+
+
+def read_garmin_auth_pause() -> str | None:
+    path = garmin_auth_pause_path()
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8-sig").strip()
+    return text or "Garmin automatic sync is paused until an interactive login succeeds."
+
+
+def write_garmin_auth_pause(reason: str) -> None:
+    path = garmin_auth_pause_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(reason.strip() + "\n", encoding="utf-8")
+
+
+def clear_garmin_auth_pause() -> bool:
+    path = garmin_auth_pause_path()
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
+def _exception_text(exc: BaseException) -> str:
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(str(current))
+        current = current.__cause__ or current.__context__
+    return " ".join(parts)
+
+
+def garmin_auth_pause_reason(exc: BaseException) -> str | None:
+    """Why automatic Garmin logins must stop, or None if the call can be retried."""
+    text = _exception_text(exc).lower()
+    if "429" in text or "too many" in text or "rate limit" in text:
+        return (
+            "Garmin rate limited this IP (429). "
+            "Automatic sync is paused until scripts/garmin_auth.py succeeds."
+        )
+    auth_markers = ("401", "unauthorized", "social profile", "authentication failed", "tokens expired")
+    if any(marker in text for marker in auth_markers):
+        return (
+            "Garmin rejected the saved token (401). "
+            "Automatic sync is paused until scripts/garmin_auth.py succeeds."
+        )
+    return None
 
 
 class GarminTokenStore:
@@ -64,6 +124,10 @@ class GarminTokenStore:
         return await asyncio.to_thread(self._validate_tokens_sync)
 
     def _validate_tokens_sync(self) -> tuple[bool, str]:
+        paused = read_garmin_auth_pause()
+        if paused:
+            return False, paused
+
         if not self.token_file_exists():
             return False, f"Token path not found: {self._token_path}"
 
@@ -74,23 +138,16 @@ class GarminTokenStore:
             return True, ""
         except FileNotFoundError:
             return False, f"Token files not found in: {self._token_path}"
-        except GarminConnectConnectionError as exc:
-            message = str(exc)
-            if "401" in message or "Unauthorized" in message:
-                return False, "Tokens expired or invalid — re-run garmin-mcp-auth --force-reauth"
-            if "mfa" in message.lower():
-                return (
-                    False,
-                    "MFA required — run garmin-mcp-auth in an interactive terminal on the host",
-                )
-            return False, f"Garmin connection error: {message.split(':')[0]}"
         except Exception as exc:
-            message = str(exc)
-            if "401" in message:
-                return False, "Tokens expired or invalid — re-run garmin-mcp-auth --force-reauth"
+            pause_reason = garmin_auth_pause_reason(exc)
+            if pause_reason:
+                write_garmin_auth_pause(pause_reason)
+                return False, pause_reason
+            message = _exception_text(exc)
             if "mfa" in message.lower():
-                return (
-                    False,
-                    "MFA required — run garmin-mcp-auth in an interactive terminal on the host",
-                )
+                mfa = "MFA required — run garmin-mcp-auth in an interactive terminal on the host"
+                write_garmin_auth_pause(mfa)
+                return False, mfa
+            if isinstance(exc, GarminConnectConnectionError):
+                return False, f"Garmin connection error: {message.split(':')[0]}"
             return False, f"Token validation failed: {message.split(':')[0]}"

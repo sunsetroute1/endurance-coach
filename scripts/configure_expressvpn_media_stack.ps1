@@ -173,7 +173,7 @@ foreach ($app in $BypassApps) {
 }
 
 Write-SetupLog ''
-Write-SetupLog 'Soulseek note: slskd runs in Docker (no Windows .exe). Bypass com.docker.backend.exe for P2P port 50300.'
+Write-SetupLog 'Soulseek note: slskd runs in Docker (no Windows .exe). Bypass com.docker.backend.exe for P2P port 50460 (50300 is blocked by Windows reserved port ranges).'
 
 if ($ApplySplitTunnel -and $ctl) {
     Write-SetupLog ''

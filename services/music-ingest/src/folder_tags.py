@@ -15,12 +15,27 @@ DEFAULT_JUNK = [
     r"^unknown$",
     # Soulseek placeholder folders/tags like [218], [97], [0000]
     r"^\[\d+\]$",
+    # Beets rewrite plugin uses literal replacements (not regex backrefs). A rule like
+    # `title ^\d+\.?\s+(.+)$: \1` writes the two-character title "\1" into tags.
+    r"^\\1$",
+    # Beets %aunique{} disambiguation suffixes when merging duplicate track numbers.
+    r"^_\d+$",
+    r"^_\d+\.\d+$",
+    r"^\d+\.\d+$",
+    r"^\d{1,2}$",
 ]
 
 BRACKET_ALBUM = re.compile(r"^\[\d+\]$", re.IGNORECASE)
 TRACK_PREFIX_JUNK = re.compile(r"^\d{1,2}\.?\s+", re.IGNORECASE)
 TRACK_PREFIX_ARTIST_FOLDER = re.compile(r"^\d{1,2}\.?\s+.+\S", re.IGNORECASE)
 TRACK_NUM_SHORT_JUNK_FOLDER = re.compile(r"^\d{1,2}\s+[A-Za-z0-9]$", re.IGNORECASE)
+# Beets %aunique{} suffixes embedded in filenames after duplicate track collisions.
+BEETS_AUNIQUE_FILENAME = re.compile(
+    r" _1(?:\.\d+)?\.(?:mp3|m4a|flac|ogg|opus|wma|aac|alac)$| _1\.(?:mp3|m4a|flac|ogg|opus|wma|aac|alac)$",
+    re.IGNORECASE,
+)
+STUB_MAX_BYTES = 500_000
+SIZE_MATCH_TOLERANCE = 0.03
 
 RESERVED_DIRS = {
     "incoming",
@@ -224,10 +239,10 @@ def read_easy_tags(path: Path) -> tuple[object | None, dict[str, str | None]]:
         return None, {}
 
     tags: dict[str, str | None] = {}
-    for key in ("artist", "albumartist", "album", "title", "tracknumber", "date", "genre"):
+    for key in ("artist", "albumartist", "album", "title", "tracknumber", "discnumber", "date", "genre"):
         raw = audio.get(key)
         if raw:
-            tags[key] = raw[0] if isinstance(raw, list) else str(raw)
+            tags[key] = str(raw[0] if isinstance(raw, list) else raw)
     return audio, tags
 
 
@@ -444,10 +459,14 @@ def fix_file_tags(path: Path, libdir: Path, junk_album_patterns, junk_artist_pat
     title = pick_field(tags.get("title"), parsed.get("title"), None, junk_album_patterns)
     if title:
         title = clean_loose_title(title)
-        if not tags.get("title") or is_junk(tags.get("title"), junk_album_patterns):
-            if tags.get("title") != title:
-                audio["title"] = title
-                changed = True
+    if not title or is_junk(tags.get("title"), junk_album_patterns):
+        recovered = title_from_path_stem(path, junk_album_patterns)
+        if recovered:
+            title = recovered
+    if title and (not tags.get("title") or is_junk(tags.get("title"), junk_album_patterns)):
+        if tags.get("title") != title:
+            audio["title"] = title
+            changed = True
 
     new_album = album_from_folder(
         tags.get("album"),
@@ -617,12 +636,363 @@ def normalize_inferred_artist(name: str) -> str:
 
 def clean_loose_title(title: str) -> str:
     text = title.strip()
-    if re.fullmatch(r"\d+", text):
-        return text
     text = re.sub(r"^\d+\.?\s+", "", text)
     text = text.replace("_", " ")
     text = re.sub(r"\s*\[mp3n\]\s*$", "", text, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def title_from_path_stem(path: Path, junk_patterns: list[re.Pattern[str]] | None = None) -> str | None:
+    """Recover a display title from the filename when tags are missing or junk."""
+    junk = junk_patterns or compile_junk()
+    parsed = parse_filename(path.stem)
+    for candidate in (parsed.get("title"),):
+        if candidate:
+            cleaned = clean_loose_title(candidate)
+            if cleaned and not is_junk(cleaned, junk):
+                return cleaned
+    loose = re.match(r"^(?P<track>\d+)\.?\s*(?P<rest>.+)$", path.stem)
+    if loose:
+        cleaned = clean_loose_title(loose.group("rest"))
+        if cleaned and not is_junk(cleaned, junk):
+            return cleaned
+    # Files like "Audobon Ballroom (feat X).mp3" with no numeric prefix.
+    if not re.match(r"^\d", path.stem):
+        cleaned = clean_loose_title(path.stem)
+        if cleaned and not is_junk(cleaned, junk):
+            return cleaned
+    return None
+
+
+def safe_track_filename(title: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]', "_", title).strip()
+    return cleaned or "track"
+
+
+def parse_leading_track(stem: str) -> str | None:
+    match = re.match(r"^(\d{1,2})", stem)
+    return match.group(1) if match else None
+
+
+def parse_tracknumber_tag(value: str | None) -> int | None:
+    if not value:
+        return None
+    head = str(value).split("/")[0].strip()
+    if not head.isdigit():
+        return None
+    num = int(head)
+    return num if num > 0 else None
+
+
+def parse_discnumber_tag(value: str | None) -> int | None:
+    if not value:
+        return None
+    head = str(value).split("/")[0].strip()
+    if not head.isdigit():
+        return None
+    num = int(head)
+    return num if num > 0 else None
+
+
+def file_sort_key(path: Path) -> tuple[int, str]:
+    match = re.match(r"^(\d+)", path.stem)
+    track = int(match.group(1)) if match else 9999
+    return track, path.stem.lower()
+
+
+def is_proper_multi_disc(files: list[Path]) -> bool:
+    discs: list[int] = []
+    for path in files:
+        _, tags = read_easy_tags(path)
+        disc = parse_discnumber_tag(tags.get("discnumber") if tags else None)
+        if disc:
+            discs.append(disc)
+    if len(set(discs)) < 2:
+        return False
+    by_disc: dict[int, list[int]] = {}
+    for path in files:
+        _, tags = read_easy_tags(path)
+        disc = parse_discnumber_tag(tags.get("discnumber") if tags else None) or 1
+        track = parse_tracknumber_tag(tags.get("tracknumber") if tags else None)
+        if track:
+            by_disc.setdefault(disc, []).append(track)
+    return all(len(tracks) == len(set(tracks)) for tracks in by_disc.values())
+
+
+def needs_track_order_repair(files: list[Path]) -> bool:
+    if len(files) < 2:
+        return False
+    if is_proper_multi_disc(files):
+        return False
+    sorted_files = sorted(files, key=file_sort_key)
+    tag_nums = []
+    for path in sorted_files:
+        _, tags = read_easy_tags(path)
+        tag_nums.append(parse_tracknumber_tag(tags.get("tracknumber") if tags else None))
+    if any(n is None for n in tag_nums):
+        return True
+    if len(set(tag_nums)) != len(tag_nums):
+        return True
+    expected = list(range(1, len(sorted_files) + 1))
+    return tag_nums != expected
+
+
+def repair_album_track_order(
+    folder: Path,
+    libdir: Path,
+    junk_patterns: list[re.Pattern[str]],
+    *,
+    write: bool,
+    rename_files: bool,
+) -> int:
+    files = [
+        path
+        for path in folder.iterdir()
+        if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+    ]
+    if not needs_track_order_repair(files):
+        return 0
+
+    updated = 0
+    sorted_files = sorted(files, key=file_sort_key)
+    total = len(sorted_files)
+    for index, path in enumerate(sorted_files, start=1):
+        audio, tags = read_easy_tags(path)
+        if audio is None:
+            continue
+        title = tags.get("title") if tags else None
+        if title is not None:
+            title = str(title).strip()
+        if not title or is_junk(title, junk_patterns):
+            title = title_from_path_stem(path, junk_patterns)
+        if not title:
+            continue
+
+        track_str = str(index)
+        total_str = str(total)
+        changed = False
+        current_track = parse_tracknumber_tag(tags.get("tracknumber"))
+        if current_track != index:
+            audio["tracknumber"] = track_str
+            changed = True
+        # Drop bogus disc 0/0 tags from bad Soulseek rips; single-folder albums are one disc.
+        disc = parse_discnumber_tag(tags.get("discnumber") if tags else None)
+        if disc not in (None, 1):
+            audio["discnumber"] = "1"
+            changed = True
+        elif tags.get("discnumber") and str(tags.get("discnumber")) != "1":
+            try:
+                del audio["discnumber"]
+                changed = True
+            except Exception:
+                audio["discnumber"] = "1"
+                changed = True
+
+        dest = path
+        if rename_files:
+            dest = folder / f"{index:02d} {safe_track_filename(title)}{path.suffix.lower()}"
+            if dest.resolve() != path.resolve():
+                counter = 1
+                base = dest.stem
+                while dest.exists():
+                    dest = dest.with_name(f"{base} ({counter}){dest.suffix}")
+                    counter += 1
+
+        if write:
+            if changed:
+                audio.save()
+            if dest.resolve() != path.resolve():
+                import shutil
+
+                shutil.move(str(path), str(dest))
+            updated += 1
+            print(f"track {track_str}/{total_str}: {dest.relative_to(libdir)}")
+        else:
+            updated += 1
+            print(f"would set track {track_str}/{total_str}: {path.relative_to(libdir)} -> {dest.name}")
+    return updated
+
+
+def repair_track_order_library(
+    libdir: Path,
+    *,
+    write: bool = True,
+    rename_files: bool = True,
+) -> dict[str, int]:
+    junk_patterns = compile_junk()
+    by_folder: dict[Path, list[Path]] = {}
+    for path in iter_audio_files(libdir):
+        by_folder.setdefault(path.parent, []).append(path)
+
+    stats = {"albums": 0, "tracks": 0}
+    for folder in sorted(by_folder):
+        count = repair_album_track_order(
+            folder, libdir, junk_patterns, write=write, rename_files=rename_files
+        )
+        if count:
+            stats["albums"] += 1
+            stats["tracks"] += count
+    return stats
+
+
+def has_junk_title(path: Path, tag_title: str | None, junk_patterns: list[re.Pattern[str]]) -> bool:
+    if not tag_title or is_junk(tag_title, junk_patterns):
+        return True
+    if BEETS_AUNIQUE_FILENAME.search(path.name):
+        return True
+    return False
+
+
+def build_album_size_title_index(folder: Path, junk_patterns: list[re.Pattern[str]]) -> dict[int, str]:
+    index: dict[int, str] = {}
+    for path in folder.iterdir():
+        if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        if BEETS_AUNIQUE_FILENAME.search(path.name):
+            continue
+        _, tags = read_easy_tags(path)
+        title = tags.get("title") if tags else None
+        if not title or is_junk(title, junk_patterns):
+            continue
+        index[path.stat().st_size] = title.strip()
+    return index
+
+
+def title_from_album_size(size: int, size_index: dict[int, str]) -> str | None:
+    if size in size_index:
+        return size_index[size]
+    best_title = None
+    best_delta = float("inf")
+    for ref_size, title in size_index.items():
+        delta = abs(size - ref_size) / max(ref_size, 1)
+        if delta <= SIZE_MATCH_TOLERANCE and delta < best_delta:
+            best_delta = delta
+            best_title = title
+    return best_title
+
+
+def resolve_recovered_title(path: Path, junk_patterns: list[re.Pattern[str]]) -> str | None:
+    _, tags = read_easy_tags(path)
+    tag_title = tags.get("title") if tags else None
+    if tag_title and not is_junk(tag_title, junk_patterns):
+        return tag_title.strip()
+
+    from_name = title_from_path_stem(path, junk_patterns)
+    if from_name:
+        return from_name
+
+    if path.parent.is_dir() and path.parent.parent != path.parent:
+        size_index = build_album_size_title_index(path.parent, junk_patterns)
+        return title_from_album_size(path.stat().st_size, size_index)
+    return None
+
+
+def repair_junk_title_file(
+    path: Path,
+    libdir: Path,
+    junk_patterns: list[re.Pattern[str]],
+    *,
+    write: bool,
+    rename: bool,
+) -> tuple[bool, str | None]:
+    if path.suffix.lower() not in AUDIO_EXTENSIONS:
+        return False, None
+
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False, None
+
+    if size <= STUB_MAX_BYTES and path.suffix.lower() == ".mp3" and BEETS_AUNIQUE_FILENAME.search(path.name):
+        if write:
+            path.unlink(missing_ok=True)
+        return True, f"removed stub {path.relative_to(libdir)}"
+
+    _, tags = read_easy_tags(path)
+    tag_title = tags.get("title") if tags else None
+    if not has_junk_title(path, tag_title, junk_patterns):
+        return False, None
+
+    title = resolve_recovered_title(path, junk_patterns)
+    if not title:
+        return False, None
+
+    audio, tags = read_easy_tags(path)
+    if audio is None:
+        return False, None
+
+    track = parse_leading_track(path.stem)
+    folder_artist, folder_album = folder_names_for_path(path, libdir)
+    changed = False
+    if tags.get("title") != title:
+        audio["title"] = title
+        changed = True
+    if track:
+        track_str = str(int(track))
+        if tags.get("tracknumber") != track_str:
+            audio["tracknumber"] = track_str
+            changed = True
+    if folder_artist and is_junk(tags.get("artist"), junk_patterns):
+        audio["artist"] = folder_artist
+        changed = True
+    if folder_artist and is_junk(tags.get("albumartist"), junk_patterns):
+        audio["albumartist"] = folder_artist
+        changed = True
+    if folder_album and is_junk(tags.get("album"), junk_patterns):
+        audio["album"] = folder_album
+        changed = True
+
+    dest = path
+    if rename and (BEETS_AUNIQUE_FILENAME.search(path.name) or is_junk(tag_title, junk_patterns)):
+        dest_stem = f"{track} {title}" if track else title
+        dest = path.parent / f"{safe_track_filename(dest_stem)}{path.suffix.lower()}"
+        if dest.resolve() != path.resolve():
+            counter = 1
+            base = dest.stem
+            while dest.exists():
+                dest = dest.with_name(f"{base} ({counter}){dest.suffix}")
+                counter += 1
+
+    if write:
+        if changed:
+            audio.save()
+        if dest.resolve() != path.resolve():
+            import shutil
+
+            shutil.move(str(path), str(dest))
+        rel = dest.relative_to(libdir)
+        return True, f"fixed {rel}"
+    rel = dest.relative_to(libdir)
+    return True, f"would fix {rel}"
+
+
+def repair_junk_titles_library(
+    libdir: Path,
+    *,
+    write: bool = True,
+    rename: bool = True,
+) -> dict[str, int]:
+    junk_patterns = compile_junk()
+    stats = {"fixed": 0, "skipped": 0, "removed": 0}
+    for path in iter_audio_files(libdir):
+        try:
+            ok, msg = repair_junk_title_file(
+                path, libdir, junk_patterns, write=write, rename=rename
+            )
+        except Exception:
+            stats["skipped"] += 1
+            continue
+        if not ok:
+            continue
+        if msg:
+            print(msg)
+            if msg.startswith("removed stub"):
+                stats["removed"] += 1
+            else:
+                stats["fixed"] += 1
+        else:
+            stats["skipped"] += 1
+    return stats
 
 
 def infer_artist_from_junk_folder(folder_name: str) -> str | None:
@@ -1031,6 +1401,16 @@ if __name__ == "__main__":
         action="store_true",
         help="delete Unknown Album folders that only contain Windows art cache",
     )
+    parser.add_argument(
+        "--repair-junk-titles",
+        action="store_true",
+        help="recover junk titles (e.g. beets rewrite \\\\1) from filenames and album peers",
+    )
+    parser.add_argument(
+        "--repair-track-order",
+        action="store_true",
+        help="renumber album tracks 1..N in filename order (fixes duplicate/missing track tags)",
+    )
     args = parser.parse_args()
     libdir = Path(args.library)
     write = not args.dry_run
@@ -1074,6 +1454,15 @@ if __name__ == "__main__":
     elif args.quarantine_root_loose:
         moved = quarantine_library_root_files(libdir, write=write)
         print(f"Quarantined {moved} root-level audio file(s).")
+    elif args.repair_junk_titles:
+        stats = repair_junk_titles_library(libdir, write=write, rename=True)
+        print(
+            "Repaired junk titles: "
+            f"fixed={stats['fixed']}, removed={stats['removed']}, skipped={stats['skipped']}"
+        )
+    elif args.repair_track_order:
+        stats = repair_track_order_library(libdir, write=write, rename_files=True)
+        print(f"Repaired track order: albums={stats['albums']}, tracks={stats['tracks']}")
     elif args.unknown_album_only:
         count = fix_unknown_album_folders(libdir, write=write)
         print(f"Updated {count} file(s).")

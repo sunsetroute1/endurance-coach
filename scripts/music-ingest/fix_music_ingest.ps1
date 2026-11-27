@@ -53,6 +53,9 @@ function Clear-StaleMusicWatcherPid {
 }
 
 Write-Log "Music ingest fix started"
+$changed = $false
+$SlskdIdleMarker = "C:\ProgramData\slskd-idle\intentionally-stopped.marker"
+$slskdIntentionallyStopped = Test-Path $SlskdIdleMarker
 
 if (-not (Test-Path $VenvPython)) {
     Write-Log "Music ingest venv missing; running install_music_ingest.ps1"
@@ -61,13 +64,21 @@ if (-not (Test-Path $VenvPython)) {
         Write-Log "ERROR: install_music_ingest failed with exit $LASTEXITCODE"
         exit 1
     }
+    $changed = $true
 } elseif ($ReinstallTasks) {
     Write-Log "Re-registering music ingest scheduled tasks"
     & (Join-Path $PSScriptRoot "install_music_watcher_startup.ps1")
     & (Join-Path $PSScriptRoot "install_music_ingest_fallback.ps1")
+    $changed = $true
 }
 
-if (-not (Test-PortOpen 5030) -or -not (Test-PortOpen 4533)) {
+$scanLock = Join-Path $LogDir "navidrome-scan.lock"
+$navidromeDown = -not (Test-PortOpen 4533)
+$slskdDown = (-not $slskdIntentionallyStopped) -and -not (Test-PortOpen 5030)
+if ($navidromeDown -and (Test-Path $scanLock)) {
+    Write-Log "Navidrome scan in progress; leaving the server stopped until that scan finishes"
+} elseif ($slskdDown -or $navidromeDown) {
+    $changed = $true
     $dockerHelpers = 'C:\ProgramData\docker\media-stack\scripts\docker-stack-helpers.ps1'
     if ((Test-Path 'C:\ProgramData\docker\media-stack\music-active.marker') -and (Test-Path $dockerHelpers)) {
         Write-Log 'Starting Docker music stack (slskd + Navidrome)...'
@@ -76,7 +87,7 @@ if (-not (Test-PortOpen 5030) -or -not (Test-PortOpen 4533)) {
             Invoke-DockerMediaStackRecovery -Reason 'music-ingest-fix' -StartupWaitSec 30 | Out-Null
         }
     } else {
-        if (-not (Test-PortOpen 5030)) {
+        if (-not $slskdIntentionallyStopped -and -not (Test-PortOpen 5030)) {
             Write-Log "Starting slskd..."
             $slskdExit = Invoke-SilentPowerShell -ScriptPath (Join-Path $RepoRoot "scripts\start_slskd_windows.ps1") -Wait
             $slskdReady = $false
@@ -122,6 +133,7 @@ Clear-StaleMusicWatcherPid
 if (-not (Test-MusicWatcherRunning)) {
     Write-Log "Starting music ingest watcher..."
     & (Join-Path $PSScriptRoot "start_music_watcher.ps1")
+    $changed = $true
     Start-Sleep -Seconds 2
     if (-not (Test-MusicWatcherRunning)) {
         Write-Log "ERROR: music watcher failed to start"
@@ -132,14 +144,21 @@ if (-not (Test-MusicWatcherRunning)) {
     Write-Log "Music ingest watcher already running (PID $runningPid)"
 }
 
-Write-Log "Running beets smoke-test scan..."
-& (Join-Path $PSScriptRoot "run_beets_import.ps1") -ScanOnce
-if ($LASTEXITCODE -ne 0) {
-    Write-Log "ERROR: beets scan failed with exit $LASTEXITCODE"
-    exit $LASTEXITCODE
+# A beets smoke test always follows with an exclusive Navidrome rescan, which
+# takes the music server offline. Skip it when this pass did not change anything.
+if ($changed) {
+    Write-Log "Running beets smoke-test scan..."
+    & (Join-Path $PSScriptRoot "run_beets_import.ps1") -ScanOnce
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "ERROR: beets scan failed with exit $LASTEXITCODE"
+        exit $LASTEXITCODE
+    }
+} else {
+    Write-Log "Music ingest already in the expected state; skipped beets scan so Navidrome stays up"
 }
 
 $watcherPid = Get-Content $PidFile -ErrorAction SilentlyContinue
-Write-Log ("Fix complete: watcher={0} slskd={1} navidrome={2} beets=ok" -f `
-    $watcherPid, (Test-PortOpen 5030), (Test-PortOpen 4533))
+$beetsState = if ($changed) { "ok" } else { "skipped" }
+Write-Log ("Fix complete: watcher={0} slskd={1} navidrome={2} beets={3}" -f `
+    $watcherPid, (Test-PortOpen 5030), (Test-PortOpen 4533), $beetsState)
 exit 0

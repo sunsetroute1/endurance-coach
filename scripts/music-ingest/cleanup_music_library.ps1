@@ -31,10 +31,9 @@ function Write-Log([string]$Message) {
 
 Copy-Item $BeetsTemplate $BeetsConfig -Force
 $pluginPath = (Join-Path $IngestRoot "plugins") -replace '\\', '/'
-[System.IO.File]::WriteAllText(
-    $BeetsConfig,
-    ((Get-Content $BeetsConfig -Raw) -replace 'MUSIC_INGEST_PLUGINPATH', $pluginPath).TrimEnd() + [Environment]::NewLine,
-    [System.Text.UTF8Encoding]::new($false))
+$beetsContent = ((Get-Content $BeetsConfig -Raw) -replace 'MUSIC_INGEST_PLUGINPATH', $pluginPath).TrimEnd()
+$beetsContent = $beetsContent -replace '(?m)^  (?:artist|album|albumartist|title) \^\d+\\\.?\s+\(\.\+\)\$: \\1\r?\n', ''
+[System.IO.File]::WriteAllText($BeetsConfig, $beetsContent + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
 Write-Log "Music library cleanup started"
 
@@ -55,6 +54,12 @@ Invoke-FolderTags @("--consolidate-junk-artists")
 
 Write-Log "Step 4: remove art-only Unknown Album folders"
 Invoke-FolderTags @("--remove-art-unknown-albums")
+
+Write-Log "Step 4b: repair junk titles (literal \\1, empty, beets aunique stubs)"
+Invoke-FolderTags @("--repair-junk-titles")
+
+Write-Log "Step 4c: repair album track order (sequential 1..N from filename order)"
+Invoke-FolderTags @("--repair-track-order")
 
 if ($SkipAutotag -or $DryRun) {
     Write-Log "Skipping Singles autotag (DryRun or SkipAutotag)"

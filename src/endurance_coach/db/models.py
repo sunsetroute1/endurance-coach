@@ -80,6 +80,14 @@ class SyncJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class RawPayloadRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Original provider JSON, kept after normalization.
+
+    ``payload`` stays in the database so a later normalizer can reprocess
+    history without downloading it again. ``processed_at`` only means a
+    normalizer has already read the row. Clearing that timestamp requeues
+    the stored body. Do not replace ``payload`` with a reduced projection.
+    """
+
     __tablename__ = "raw_payloads"
     __table_args__ = (
         UniqueConstraint("user_id", "content_hash", name="uq_raw_payload_user_hash"),
@@ -306,6 +314,82 @@ class RunningDynamicsRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     avg_stride_length_m: Mapped[float | None] = mapped_column(Float)
 
 
+class ActivityDetailCollectionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Per-activity chart collection status. Raw JSON stays in raw_payloads."""
+
+    __tablename__ = "activity_detail_collections"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "provider",
+            "provider_activity_id",
+            name="uq_activity_detail_collection",
+        ),
+        Index("ix_activity_detail_collections_status", "user_id", "status"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_activity_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    activity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("activities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metric_keys: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    median_interval_seconds: Mapped[float | None] = mapped_column(Float)
+    error_message: Mapped[str | None] = mapped_column(String(512))
+    source_payload_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("raw_payloads.id", ondelete="RESTRICT"),
+    )
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ActivityDetailSampleRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One Garmin chart row. Null columns are missing measurements, not zeros."""
+
+    __tablename__ = "activity_detail_samples"
+    __table_args__ = (
+        UniqueConstraint("activity_id", "sample_index", name="uq_activity_detail_sample"),
+        Index("ix_activity_detail_samples_activity", "activity_id", "elapsed_seconds"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    activity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("activities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_payload_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("raw_payloads.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    sample_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    elapsed_seconds: Mapped[float | None] = mapped_column(Float)
+    heart_rate_bpm: Mapped[float | None] = mapped_column(Float)
+    power_watts: Mapped[float | None] = mapped_column(Float)
+    run_cadence_spm: Mapped[float | None] = mapped_column(Float)
+    step_cadence_spm: Mapped[float | None] = mapped_column(Float)
+    potential_stamina: Mapped[float | None] = mapped_column(Float)
+    available_stamina: Mapped[float | None] = mapped_column(Float)
+    elevation_meters: Mapped[float | None] = mapped_column(Float)
+    speed_mps: Mapped[float | None] = mapped_column(Float)
+    grade_adjusted_speed_mps: Mapped[float | None] = mapped_column(Float)
+
+
 class ComputedMetricRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "computed_metrics"
     __table_args__ = (
@@ -325,6 +409,8 @@ class ComputedMetricRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 # Re-export enums for Alembic autogenerate awareness
 __all__ = [
+    "ActivityDetailCollectionRecord",
+    "ActivityDetailSampleRecord",
     "ActivityRecord",
     "BodyBatteryRecord",
     "ComputedMetricRecord",

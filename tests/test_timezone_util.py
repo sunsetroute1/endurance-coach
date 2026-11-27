@@ -3,7 +3,13 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from endurance_coach.timezone_util import now_local, today_local
+from endurance_coach.timezone_util import now_local, server_timezone_name, today_local
+
+
+def test_server_timezone_matches_the_host_clock() -> None:
+    name = server_timezone_name()
+    zone = ZoneInfo(name)
+    assert datetime.now(zone).utcoffset() == datetime.now().astimezone().utcoffset()
 
 
 def test_today_local_uses_configured_timezone() -> None:

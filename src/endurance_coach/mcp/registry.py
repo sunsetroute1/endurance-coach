@@ -22,6 +22,15 @@ REQUIRED_MCP_TOOLS: tuple[str, ...] = (
 OPTIONAL_MCP_TOOLS: tuple[str, ...] = (
     "get_weekly_aggregates",
     "get_top_trail_efforts",
+    "get_garmin_performance",
+    "get_garmin_performance_trends",
+    "get_garmin_data_quality",
+    "get_garmin_activity_details",
+    "get_garmin_activity_efficiency",
+    "get_garmin_activity_comparison",
+    "get_garmin_activity_backfill_status",
+    "get_garmin_activity_longitudinal",
+    "get_running_training_plan",
 )
 
 

@@ -70,6 +70,7 @@ async def get_request_services(request: Request) -> AsyncGenerator[RequestServic
             sync_job_repo=sync_job_repo,
             connection_repo=connection_repo,
             sync_days=container.settings.garmin_sync_days,
+            timezone=container.settings.app_timezone,
         )
         strava_provider = StravaDataProvider(
             token_store=strava_token_store,

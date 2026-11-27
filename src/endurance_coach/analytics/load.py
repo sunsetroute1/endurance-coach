@@ -15,6 +15,7 @@ from endurance_coach.analytics.math import (
 from endurance_coach.analytics.repositories import AnalyticsDataRepository
 from endurance_coach.domain.enums import MetricFamily
 from endurance_coach.domain.models import LoadMetrics, MetricSnapshot, MetricValue
+from endurance_coach.timezone_util import calendar_date
 
 
 class LoadMetricsCalculator:
@@ -53,7 +54,7 @@ class LoadMetricsCalculator:
         )
 
     async def compute(self, user_id: UUID, as_of: datetime) -> MetricSnapshot:
-        as_of_date = as_of.date()
+        as_of_date = calendar_date(as_of)
         loads = await self.compute_load_metrics(user_id, as_of_date)
         progression = compute_weekly_load_progression(
             await self._data_repo.get_daily_activity_loads(user_id, as_of_date),

@@ -26,6 +26,15 @@ def test_static_tool_registry_contains_required_tools() -> None:
     assert missing_required_tools(registered) == []
     for name in REQUIRED_MCP_TOOLS:
         assert name in registered
+    assert "get_garmin_performance" in registered
+    assert "get_garmin_performance_trends" in registered
+    assert "get_garmin_data_quality" in registered
+    assert "get_garmin_activity_details" in registered
+    assert "get_garmin_activity_efficiency" in registered
+    assert "get_garmin_activity_comparison" in registered
+    assert "get_garmin_activity_backfill_status" in registered
+    assert "get_garmin_activity_longitudinal" in registered
+    assert "get_running_training_plan" in registered
 
 
 def test_detailed_activity_schema_is_static_and_connector_safe() -> None:
